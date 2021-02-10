@@ -1,0 +1,6 @@
+**/TMS logs
+**/venv
+**/dane
+*.sqlite3
+*.csv
+work_in_progres.py
