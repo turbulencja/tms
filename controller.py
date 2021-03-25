@@ -1,4 +1,4 @@
-# import TMS_exceptions as tms_exc
+import tms_exceptions as tms_exc
 import numpy as np
 import threading
 import logging
@@ -26,37 +26,22 @@ class Controller(threading.Thread):
             except Empty:
                 pass
             else:
-                if record[0] == "load opto file":
-                    self.open_opto_csv_file(record[1])
-                elif record[0] == "load ec file":
-                    self.open_ec_csv_file(record[1])
+                if record[0] == "load db file":
+                    self.connect_db(record[1])
+                elif record[0] == "draw opto":
+                    self._ctrl_model_q.put(record)
                 else:
                     logging.info("unrecognizable input from gui: {}".format(record))
 
-    def open_opto_csv_file(self, filename):
-        opto_fname = filename.split("/")[-1]
-        logging.info("reading opto file {}".format(opto_fname))
-        # data = self.read_csv(filename)
-        data = np.genfromtxt(filename, delimiter=',')
-        wavelength = np.linspace(344.6, 1041.2, num=data.shape[1]-2)
-        opto_record = ("opto file in", (opto_fname, wavelength, data))
-        self._ctrl_model_q.put(opto_record)
-        self.draw_opto(opto_fname)
+    def connect_db(self, db_fpath):
+        self._ctrl_model_q.put(('connect to db', db_fpath))
+        self.draw_ec()
 
-    def open_ec_csv_file(self, filename):
-        ec_fname = filename.split("/")[-1]
-        logging.info("reading ec file {}".format(ec_fname))
-        # data = self.read_csv(filename)
-        data = np.genfromtxt(filename, delimiter=',')
-        ec_record = ("ec data in", (ec_fname, data))
-        self._ctrl_model_q.put(ec_record)
-        self.draw_ec(ec_fname)
+    def draw_ec(self):
+        self._ctrl_model_q.put(('draw ec'))
 
-    def draw_ec(self, ec_fname):
-        self._ctrl_model_q.put(('draw ec', ec_fname))
-
-    def draw_opto(self, opto_fname):
-        self._ctrl_model_q.put(('draw opto', opto_fname))
+    def draw_opto(self):
+        self._ctrl_model_q.put('draw opto')
 
     @staticmethod
     def read_csv(filename):

@@ -2,12 +2,11 @@
 import threading
 import logging
 import sqlite3
-from ec_dataset import ElectroChemSet, ElectroChemSetB
+from ec_dataset import ElectroChemSet
 from queue import Empty
-from opto_dataset import OptoDataset
-from os import path, listdir
+from opto_dataset import OptoDatasetB
 import numpy as np
-# import TMS_exceptions as tms_exc
+import tms_exceptions as tms_exc
 
 
 class Model(threading.Thread):
@@ -16,11 +15,11 @@ class Model(threading.Thread):
         threading.Thread.__init__(self)
         self.daemon = True
         self.db_name = None
+        self.opto_dataset = None
+        self.ec_dataset = None
 
-        self.db_names_list = []
-        self._optical_data = {}
-        self._optical_reference = []
-        self._ec_data = {}
+        self.ec_items = None
+        self.wavelength_range = None
 
         self._ctrl_model_queue = kwargs['ctrl_model_queue']
         self._model_ctrl_queue = kwargs['model_ctrl_queue']
@@ -33,150 +32,117 @@ class Model(threading.Thread):
         logging.info("model running thread {}".format(threading.get_ident()))
         while True:
             try:
-                record = self._ctrl_model_queue.get()
+                order, data = self._gui_model_queue.get()
             except Empty:
                 pass
             else:
-                if record[0] == "ec data in":
-                    self.load_ec_data(record[1])
-                    self.zip_ec_opto_dataset()
-                elif record[0] == "opto file in":
-                    self.load_opto_file(record[1])
-                    self.zip_ec_opto_dataset()
-                elif record[0] == "draw ec":
-                    self.send_ec_data(record)
-                elif record[0] == "draw opto":
-                    self.send_opto_data(record)
+                if order == 'λ(V)':
+                    self.wavelength_range = data
+                    self.send_lbd_v()
+                elif order == 'λ(meas)':
+                    self.wavelength_range = data
+                    self.send_lbd_meas()
+                elif order == "IODM(V)":
+                    self.wavelength_range = data
+                    self.send_iodm_v()
+                elif order == "IODM(meas)":
+                    self.wavelength_range = data
+                    self.send_iodm_meas()
+                elif order == "cross section":
+                    self.wavelength_range = data
+                    pass
+                elif order == "draw ec" and self.ec_dataset:
+                    # todo fix
+                    self.send_ec_data()
+                elif order == "draw opto" and self.opto_dataset:
+                    self.opto_dataset.ec_ids = self.ec_items
+                    self._model_gui_queue.put(("draw opto", self.opto_dataset))
+                elif order == "draw opto" and not self.opto_dataset:
+                    logging.info("load optical data before drawing")
+                elif order == "ec range":
+                    self.ec_items_from_range(data)
+                elif order == "wavelength range":
+                    self.wavelength_range = data
+                elif order == "load opto csv":
+                    self.read_opto_csv(data)
+                elif order == "load ec csv":
+                    self.read_ec_csv(data)
                 else:
-                    logging.info("unrecognizable order from ctrl: {}".format(record))
+                    logging.info("unrecognizable order: {}".format(order))
 
-    def check_databases(self):
-        ''' checks dbs in directory '''
-        f_names = [f for f in listdir('.') if path.isfile(f)]
-        for f in f_names:
-            if f.endswith('.sqlite3'):
-                self.db_names_list.append(f)
-            else:
-                pass
+    def send_iodm_meas(self):
+        wavelength_range_ids = self.calc_wavelength_range_ids()
+        iodm = self.opto_dataset.send_IODM(self.ec_items, wavelength_range_ids, reference=0)
+        self._model_gui_queue.put(("IODM(meas)", iodm))
 
-    def setup_database(self, name):
-        self.db_name = name + '.sqlite3'
-        db_connection = sqlite3.connect(name+'.sqlite3')
-        cursor = db_connection.cursor()
-        ech_sql = """
-        CREATE TABLE electrochemical_measurement(
-            id integer PRIMARY KEY,
-            current float NOT NULL,
-            voltage float NOT NULL)"""
-        cursor.execute(ech_sql)
+    def send_iodm_v(self):
+        wavelength_range_ids = self.calc_wavelength_range_ids()
+        iodm_dict = self.opto_dataset.send_IODM(self.ec_items, wavelength_range_ids, reference=0)
+        _, iodm = zip(*iodm_dict.items())
+        v = [self.ec_dataset.V[item] for item in self.ec_items]
+        self._model_gui_queue.put(("IODM(V)", (v, iodm)))
 
-        wvlngth_sql = """
-        CREATE TABLE wavelength(
-            id integer PRIMARY KEY,
-            lambda float NOT NULL,
-            UNIQUE (lambda))"""
-        cursor.execute(wvlngth_sql)
-
-        opto_sql = """
-        CREATE TABLE optical_measurement(
-            id integer PRIMARY KEY,
-            ec_point_id integer NOT NULL,
-            wavelength_id integer NOT NULL,
-            transmission float NOT NULL,
-            FOREIGN KEY (ec_point_id) REFERENCES electrochemical_measurement(id),
-            FOREIGN KEY (wavelength_id) REFERENCES wavelength(id))"""
-        cursor.execute(opto_sql)
-        db_connection.close()
-
-    def load_ec_data(self, ec_in):
-        if ec_in[0] in self.db_names_list:
-            db_connection = sqlite3.connect(ec_in[0]+'.sqlite3')
-        else:
-            self.setup_database(ec_in[0])
-            db_connection = sqlite3.connect(ec_in[0]+'.sqlite3')
-
-        cursor = db_connection.cursor()
-        ech_records = [[num, uA, V] for num, [uA, V] in enumerate(ec_in[1])]
-        cursor.executemany('INSERT INTO electrochemical_measurement VALUES(?,?,?);', ech_records)
-        db_connection.commit()
-        db_connection.close()
-
-    def load_opto_data(self, opto_in):
-        if opto_in[0] in self.db_names_list:
-            db_connection = sqlite3.connect(opto_in[0]+'.sqlite3')
-        else:
-            self.setup_database(opto_in[0])
-            db_connection = sqlite3.connect(opto_in[0]+'.sqlite3')
-        cursor = db_connection.cursor()
-        data_cut = opto_in[2][:, 2:]
-        o_measurements = np.zeros([data_cut.size, 4])
-        for meas_num, meas in enumerate(data_cut):
-            for meas_point_num, meas_point in enumerate(meas):
-                meas_point_abs_num = meas_num * data_cut.shape[1] + meas_point_num
-                o_measurements[meas_point_abs_num] = [meas_point_abs_num, meas_num, meas_point_num, meas_point]
-        cursor.executemany('INSERT INTO optical_measurement VALUES(?,?,?,?);', o_measurements)
-        db_connection.commit()
-        db_connection.close()
-
-    def load_wavelength(self, wavelength, db_name):
-        if db_name in self.db_names_list:
-            db_connection = sqlite3.connect(db_name)
-        else:
-            self.setup_database(db_name)
-            db_connection = sqlite3.connect(db_name)
-        cursor = db_connection.cursor()
-        wvlngth_records = [[num, lambda_nm] for num, lambda_nm in enumerate(wavelength)]
-        cursor.executemany('INSERT INTO wavelength VALUES(?,?);', wvlngth_records)
-        db_connection.commit()
-        db_connection.close()
-
-    def load_ec_data_(self, ec_in):
-        new_ec = ElectroChemSet(ec_in[0])
-        new_ec.V = ec_in[1][:, 0]
-        new_ec.uA = ec_in[1][:, 1]
-        self._ec_data[ec_in[0]] = new_ec
-
-    def load_ec_data__(self, ec_in):
-        new_ec = ElectroChemSetB(ec_in[0])
-        new_ec.load_ec_data(ec_in[1][:, 1], ec_in[1][:, 0])
-
-    def send_ec_data(self, order):
-        ec_fname = order[1]
+    def send_lbd_meas(self):
+        # todo: refactor; should be done by opto_dataset
         try:
-            ec_data = self._ec_data[ec_fname]
+            ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
+            wavelength_range_ids = self.calc_wavelength_range_ids()
+            min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
+            self._model_gui_queue.put(("λ(meas)", min_lbd_dict))
         except KeyError:
-            logging.warning("no ec data under {}".format(ec_fname))
-        else:
-            self._model_gui_queue.put((order[0], ec_data))
+            logging.error("optical file out of scope")
 
-    def load_opto_file(self, opto_in):
-        new_opto = OptoDataset()
-        new_opto.name = opto_in[0]
-        new_opto.wavelength = opto_in[1]
-        transmission = opto_in[2][:, 2:]
-        new_opto.load_transmission_matrix(transmission)
-        self._optical_data[new_opto.name] = new_opto
+    def calc_wavelength_range_ids(self):
+        wvlgth_start = self.find_nearest_lambda(self.wavelength_range[0], self.opto_dataset.wavelength)
+        wvlgth_stop = self.find_nearest_lambda(self.wavelength_range[0] + self.wavelength_range[1],
+                                               self.opto_dataset.wavelength)
+        wavelength_range_ids = [wvlgth_start, wvlgth_stop]
+        return wavelength_range_ids
 
-    def send_opto_data(self, order):
-        opto_fname = order[1]
+    def send_lbd_v(self):
         try:
-            opto_data = self._optical_data[opto_fname]
+            ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
+            wavelength_range_ids = self.calc_wavelength_range_ids()
+            min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
+            v = [self.ec_dataset.V[item] for item in self.ec_items]
+            self._model_gui_queue.put(("λ(V)", (v, min_lbd_dict)))
         except KeyError:
-            logging.warning("no optical data under {}".format(opto_fname))
+            logging.error("optical file out of scope")
+
+    def read_opto_csv(self, filename):
+        # filename = "dane/Kasia_2021.02.01/opto_2021_02_01_11_46_26.csv"
+        logging.info("reading file: {}".format(filename))
+        data = np.genfromtxt(filename, delimiter=',')
+        new_opto_dataset = OptoDatasetB()
+        new_opto_dataset.insert_opto_from_csv(data)
+        new_opto_dataset.wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)
+        if self.ec_items:
+            new_opto_dataset.ec_ids = self.ec_items
         else:
-            self._model_gui_queue.put((order[0], opto_data))
+            new_opto_dataset.ec_ids = list(new_opto_dataset.transmission.keys())
+        self.opto_dataset = new_opto_dataset
+        logging.info("optical file loaded, drawing...")
+        self._model_gui_queue.put(("draw opto", self.opto_dataset))
+
+    def read_ec_csv(self, filename):
+        # filename = "dane/Kasia_2021.02.01/ech_pr_2021_02_01_11_46_26.csv"
+        logging.info("reading file: {}".format(filename))
+        data = np.genfromtxt(filename, delimiter=',')
+        new_ec_dataset = ElectroChemSet()
+        new_ec_dataset.insert_ec_csv(data)
+        self.ec_dataset = new_ec_dataset
+        self._model_gui_queue.put(("draw ec", self.ec_dataset))
+        self._model_gui_queue.put(("send ec ranges", None))
+
+    def ec_items_from_range(self, ec_ranges):
+        ec_items = []
+        for ec_range in ec_ranges:
+            ec_items.extend(list(range(ec_range[0], ec_range[1])))
+        self.ec_items = ec_items
 
     @staticmethod
-    def connect_ec_opto_data(opto_meas, ec_point):
-        opto_meas.ec_point = ec_point
-        ec_point.opto_meas = opto_meas
-
-    def zip_ec_opto_dataset(self):
-        pass
-        # for key in self._ec_data.keys():
-            # print(self._ec_data[key].ec_set.keys())
-        # for key in self._optical_data.keys():
-            # print(self._optical_data[key].opto_set.keys())
-
-
-
+    def find_nearest_lambda(lambda_nm, wavelength_array):
+        # find nearest value, return index
+        diff = [abs(item - lambda_nm) for item in wavelength_array]
+        idx = diff.index(min(diff))
+        return idx

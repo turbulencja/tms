@@ -1,6 +1,8 @@
 **/TMS logs
 **/venv
 **/dane
+**/__pycache__
+**/.idea
 *.sqlite3
 *.csv
 work_in_progres.py

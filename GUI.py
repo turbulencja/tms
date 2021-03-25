@@ -6,6 +6,8 @@ import threading
 import matplotlib
 import matplotlib.ticker as mtick
 import matplotlib.patches as patches
+import tms_exceptions as tms_exc
+import os
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -53,33 +55,16 @@ class View:
         self.voltage_min_label = None
         # min items
         self.min_figure = None
-        self.min_option_string = None
+        self.param_option_string = None
 
         self.window = tkinter.Tk()
         self.window.title("TechMatStrateg")
         self.window.minsize(width=1200, height=400)
         self.setup_window()
+        self.initialdir = "C:/Users/aerial triceratops/PycharmProjects/TechMatStrateg/dane/"
         logging.info("GUI running thread {}".format(threading.get_ident()))
 
         self.window.mainloop()
-
-    def poll_ctrl_queue(self):
-        # Check every 400ms if there is a new message in the queue
-        while True:
-            try:
-                record = self._ctrl_gui_q.get(block=False)
-            except Empty:
-                break
-            else:
-                if record[0] == "draw ec":  # todo:remove
-                    self.electrochemical_teardown()
-                    self.draw_electrochemical()
-                elif record[0] == "draw opto":  # todo:remove
-                    self.opto_teardown()
-                    self.draw_optical()
-                else:
-                    logging.info("unrecognized order from ctrl: {}".format(record))
-        self.window.after(400, self.poll_ctrl_queue)
 
     def poll_data_queue(self):
         # Check every 400ms if there is a new message in the queue
@@ -88,20 +73,79 @@ class View:
                 record = self._model_gui_q.get(block=False)
             except Empty:
                 break
+            try:
+                order, data = record
+            except ValueError:
+                logging.info("order misshap: {}".format(record))
             else:
-                if record[0] == "draw ec":
-                    self.ec_data = record[1]
+                if order == "draw ec":
+                    self.ec_data = data
                     self.electrochemical_teardown()
                     self.draw_electrochemical()
-                elif record[0] == "draw opto":
-                    self.optical_data = record[1]
+                elif order == "draw opto":
+                    self.optical_data = data
                     self.opto_teardown()
                     self.draw_optical()
+                elif order == "send ec ranges":
+                    ec_ranges = self.find_ec_range()
+                    self._gui_model_q.put(("ec range", ec_ranges))
+                elif order == "IODM(V)":
+                    self.draw_iodm_v(data)
+                elif order == "IODM(meas)":
+                    self.draw_iodm_meas(data)
+                elif order == 'λ(V)':
+                    self.min_draw(data)
+                elif order == 'λ(meas)':
+                    self.min_meas_draw(data)
+                elif order == 'cross section':
+                    pass
                 else:
-                    logging.info("unrecognized order from ctrl: {}".format(record))
+                    logging.info("unrecognized order from model: {}".format(order))
         self.window.after(400, self.poll_data_queue)
 
     def draw_optical(self):
+        logging.info("please wait, drawing optical data")
+        opto_ax = self.opto_figure.add_subplot(111)
+        transmission, wavelength = self.optical_data.generate_data_for_plotting()
+        for meas in transmission:
+            opto_ax.plot(wavelength, transmission[meas])
+        opto_ax.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.1e'))
+        opto_ax.set_xlabel('$\lambda$ [nm]')
+        opto_ax.set_ylabel('T [dB]')
+        self.opto_figure.tight_layout()
+        self.opto_figure.canvas.draw()
+        self.opto_bg = self.opto_figure.canvas.copy_from_bbox(self.opto_figure.bbox)
+        x = 550
+        dx = 170
+        y = opto_ax.get_ylim()[0]
+        dy = opto_ax.get_ylim()[1]
+        opto_rect = patches.Rectangle((x, y), dx, dy,
+                                      linewidth=1,
+                                      edgecolor=View.seaborn_colors[0],
+                                      facecolor=View.seaborn_colors[0],
+                                      alpha=0.25)
+        opto_ax.add_artist(opto_rect)
+        opto_ax.draw_artist(opto_rect)
+        self.opto_figure.canvas.draw()
+
+        self.lambda_start = tkinter.DoubleVar()
+        self.lambda_start.set(x)
+        self.lambda_from_slider = tkinter.DoubleVar()
+        self.lambda_from_slider.set(dx)
+        self.opto_slider = ttk.Scale(self.optoframe,
+                                     from_=0.0,
+                                     to_=self.optical_data.wavelength[-1]-self.optical_data.wavelength[0],
+                                     length=300,
+                                     command=self.resize_wavelength_range,
+                                     variable=self.lambda_from_slider)
+        string_label = "{:.2f} nm".format(self.lambda_from_slider.get())
+        self.lambda_label = tkinter.Label(self.optoframe, text=string_label)
+        self.lambda_label.pack(side=tkinter.LEFT, padx=3)
+        self.opto_slider.pack(side=tkinter.RIGHT)
+        self.opto_dr = DraggableRectangle(opto_rect, self.lambda_start, self.opto_bg)
+        self.opto_dr.connect()
+
+    def draw_optical_old(self):
         logging.info("please wait, drawing optical data")
         opto_ax = self.opto_figure.add_subplot(111)
         for meas in self.optical_data.opto_set:
@@ -117,7 +161,7 @@ class View:
                                      from_=self.optical_data.wavelength[0],
                                      to_=self.optical_data.wavelength[-1],
                                      length=300,
-                                     command=self.draw_optical_line,
+                                     command=self.resize_wavelength_range,
                                      variable=self.lambda_from_slider,
                                      value=self.optical_data.wavelength[0])
         string_label = "{:.2f} nm".format(self.optical_data.wavelength[0])
@@ -134,6 +178,7 @@ class View:
             pass
 
     def draw_optical_line(self, lambda_nm):
+        # obsolete
         self.opto_figure.canvas.restore_region(self.opto_bg)
         lambda_float = float(lambda_nm)
         [opto_ax, ] = self.opto_figure.axes
@@ -144,6 +189,12 @@ class View:
         self.opto_figure.canvas.blit(self.opto_figure.bbox)
         self.lambda_label.configure(text="{:.2f} nm".format(lambda_float))
 
+    def resize_wavelength_range(self, lambda_nm):
+        self.opto_figure.canvas.restore_region(self.opto_bg)
+        lambda_float = float(lambda_nm)
+        self.opto_dr.reshape_x(lambda_float)
+        self.lambda_label.configure(text="{:.2f} nm".format(lambda_float))
+
     def electrochemical_teardown(self):
         self.duck_figure.clf()
         self.duck_slider_v.destroy()
@@ -152,19 +203,25 @@ class View:
         self.voltage_from_slider = None
         self.duck_bg = None
         self.duck_dr = None
+        try:
+            self.current_max_label.destroy()
+            self.current_min_label.destroy()
+            self.voltage_max_label.destroy()
+            self.voltage_min_label.destroy()
+        except AttributeError:
+            pass
 
     def draw_electrochemical(self):
         logging.info("please wait, drawing electrochemical data")
         duck_ax = self.duck_figure.add_subplot(111)
-
         duck_ax.plot(self.ec_data.V, self.ec_data.uA)
         duck_ax.set_xlabel('U [V]')
         duck_ax.set_ylabel('I [uA]')
         self.duck_figure.tight_layout()
         self.duck_figure.canvas.draw()
         self.duck_bg = self.duck_figure.canvas.copy_from_bbox(self.duck_figure.bbox)
-        x = 0.0; dx = 1.0
-        y = 0.0; dy = 1*10**(-5)
+        x = min(self.ec_data.V); dx = -x+max(self.ec_data.V)
+        y = min(self.ec_data.uA); dy = -y+max(self.ec_data.uA)
         rect = patches.Rectangle((x, y), dx, dy,
                                  linewidth=1,
                                  edgecolor=View.seaborn_colors[0],
@@ -186,22 +243,22 @@ class View:
         self.voltage_from_dr.trace_add('write', lambda *args: self.update_min_voltage(self.voltage_from_dr, *args))
         self.current_from_dr.trace_add('write', lambda *args: self.update_min_current(self.current_from_dr, *args))
 
-        self.duck_dr = DraggableRectangle(rect, self.voltage_from_dr, self.current_from_dr, self.duck_bg)
+        self.duck_dr = DraggableRectangle(rect, self.voltage_from_dr, self.duck_bg, self.current_from_dr)
         self.duck_dr.connect()
 
-        self.current_max_label = tkinter.Label(self.top_duckframe, text='{:.2f}'.format(dy/self.micro), width=8)
-        self.current_min_label = tkinter.Label(self.top_duckframe, text='{:.2f}'.format(y/self.micro), width=8)
+        self.current_max_label = tkinter.Label(self.top_duckframe, text='{:.3f}'.format(dy/self.micro), width=8)
+        self.current_min_label = tkinter.Label(self.top_duckframe, text='{:.3f}'.format(y/self.micro), width=8)
         self.voltage_max_label = tkinter.Label(self.duckframe, text='{:.2f}'.format(dx))
         self.voltage_min_label = tkinter.Label(self.duckframe, text='{:.2f}'.format(x))
 
         self.duck_slider_v = ttk.Scale(self.duckframe,
                                        from_=0,
-                                       to_=self.ec_data.V.max()-self.ec_data.V.min(),
+                                       to_=max(self.ec_data.V)-min(self.ec_data.V),
                                        length=300,
                                        variable=self.voltage_from_slider)
         self.duck_slider_ua = ttk.Scale(self.top_duckframe,
                                         length=250,
-                                        from_=self.ec_data.uA.max()-self.ec_data.uA.min(),
+                                        from_=max(self.ec_data.uA)-min(self.ec_data.uA),
                                         to_=0,
                                         variable=self.current_from_slider,
                                         orient=tkinter.VERTICAL)
@@ -214,36 +271,65 @@ class View:
         self.duck_slider_ua.pack(side=tkinter.LEFT)
         self.duck_slider_v.pack()
 
+    def find_ec_range(self):
+        logging.info("calculating ec ranges")
+        if self.in_rectangle(self.ec_data.id[0]):
+            ec_start_inside = 0
+        else:
+            ec_start_inside = None
+        for ec_id in self.ec_data.id[1:-1]:
+            if not ec_start_inside and self.in_rectangle(ec_id):
+                ec_start_inside = ec_id
+            elif ec_start_inside and not self.in_rectangle(ec_id):
+                yield ec_start_inside, ec_id
+                ec_start_inside = None
+        if self.in_rectangle(self.ec_data.id[-1]):
+            yield ec_start_inside, self.ec_data.id[-1]
+
+    def in_rectangle(self, ec_id):
+        point_x = self.ec_data.V[ec_id]
+        point_y = self.ec_data.uA[ec_id]
+        dx = self.voltage_from_slider.get()
+        dy = self.current_from_slider.get()
+        x = self.voltage_from_dr.get()
+        y = self.current_from_dr.get()
+        if x <= point_x <= x + dx and y <= point_y <= y + dy:
+            return True
+        else:
+            return False
+
+    def update_ec_range(self):
+        ec_range = self.find_ec_range()
+        self._gui_model_q.put(("ec range", ec_range))
+
     def update_max_voltage(self, v, *args):
         voltage = self.voltage_from_slider.get()
         self.duck_dr.reshape_x(float(voltage))
         self.voltage_max_label.configure(text="{} V".format(v.round_string()))
-        # todo: redraw optics
+        self.update_ec_range()
 
     def update_min_voltage(self, v, *args):
         self.voltage_min_label.configure(text="{} V".format(v.round_string()))
-        # todo: redraw optics
+        self.update_ec_range()
 
     def update_max_current(self, ua, *args):
         current = ua.get()
         self.duck_dr.reshape_y(float(current))
-        self.current_max_label.configure(text="{:.2f} uA".format(current/self.micro))
-        # todo: redraw optics
+        self.current_max_label.configure(text="{:.3f} uA".format(current/self.micro))
+        self.update_ec_range()
 
     def update_min_current(self, ua, *args):
         current = ua.get()
-        self.current_min_label.configure(text="{:.2f} uA".format(current/self.micro))
-        # todo: redraw optics
+        self.current_min_label.configure(text="{:.3f} uA".format(current/self.micro))
+        self.update_ec_range()
 
     def draw_ec_vline(self, voltage):
         self.duck_dr.reshape_x(float(voltage))
         self.voltage_max_label.configure(text="{} V".format(self.voltage_from_slider.round_string()))
-        # todo: redraw optics
 
     def draw_ec_ualine(self, current):
         self.duck_dr.reshape_y(float(current))
         self.current_max_label.configure(text="{} uA".format(self.current_from_slider.round_string()))
-        # todo: redraw optics
 
     def setup_frames(self):
         self.topframe = tkinter.Frame(self.window, pady=3)
@@ -284,7 +370,7 @@ class View:
 
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.window.after(100, self.poll_log_queue)
-        self.window.after(400, self.poll_ctrl_queue)
+        # self.window.after(400, self.poll_ctrl_queue)
         self.window.after(401, self.poll_data_queue)
 
     def setup_duck_frame(self):
@@ -300,7 +386,7 @@ class View:
         self.duck_slider_v.pack()
         self.duck_slider_ua.pack(side=tkinter.LEFT)
 
-        ec_file_button = ttk.Button(self.duckframe, text="Browse for ec file", command=self.askopenfile_ec)
+        ec_file_button = ttk.Button(self.duckframe, text="Browse for ec data", command=self.askopenfile_ec_csv)
         ec_file_button.pack(side=tkinter.BOTTOM)
 
         # label_vertical
@@ -317,30 +403,39 @@ class View:
         self.opto_slider.pack()
 
         optical_file_button = ttk.Button(self.bottom_optoframe,
-                                         text="Browse for optical file",
-                                         command=self.askopenfile_opto)
+                                         text="Redraw",
+                                         command=self.redraw_opto)
         optical_reference_button = ttk.Button(self.bottom_optoframe,
-                                              text="Browse for optical reference",
-                                              command=self.askopenfile_ref)
+                                              text="Browse for optical data",
+                                              command=self.askopenfile_opto_csv)
 
         optical_file_button.pack(side=tkinter.LEFT, padx=3)
         optical_reference_button.pack(side=tkinter.RIGHT, padx=3)
 
-    def askopenfile_ref(self):
-        logging.info("loading reference file: not operational yet")
-        # filename = filedialog.askopenfilename(initialdir="/", title="Select file",
-        #                                       filetypes=(("csv files", "*.csv"), ("all files", "*.*")))
-        # if not filename:
-        #     pass
-        # else:
-        #     self._gui_ctrl_q.put(("load ref file", filename))
+    def redraw_opto(self):
+        logging.info("redrawing optical data")
+        ec_range = self.find_ec_range()
+        self._gui_model_q.put(("ec range", ec_range))
+        self._gui_model_q.put(("draw opto", None))
 
-    def min_teardown(self):
+    def askopenfile_opto_csv(self):
+        logging.info("loading optical file")
+        filename = filedialog.askopenfilename(initialdir=self.initialdir, title="Select file",
+                                              filetypes=(("csv files", "*.csv"), ("all files", "*.*")))
+        if not filename:
+            pass
+        else:
+            self._gui_model_q.put(("load opto csv", filename))
+            self.initialdir = os.path.dirname(filename)
+
+    def parameter_teardown(self):
         self.min_figure.clf()
 
-    def min_redraw(self):
-        self.min_teardown()
-        self.min_draw()
+    def model_send_params(self):
+        logging.info("collecting data for plotting")
+        param = self.param_option_string.get()
+        wvlgth_range = [self.lambda_start.get(), self.lambda_from_slider.get()]
+        self._gui_model_q.put((param, wvlgth_range))
 
     @staticmethod
     def find_nearest_lambda(lambda_nm, wavelength_array):
@@ -349,17 +444,65 @@ class View:
         idx = diff.index(min(diff))
         return idx
 
-    def min_draw(self):
-        logging.info("please wait, drawing min data")
-        lambda_nm = self.lambda_from_slider.get()
+    def cross_section_draw(self):
+        logging.info("please wait, drawing cross section data")
+        lambda_nm = self.lambda_start.get()
         min_idx = self.find_nearest_lambda(lambda_nm, self.optical_data.wavelength)
         min_array = []
-        for item in self.optical_data.opto_set:
-            min_array.append(self.optical_data.opto_set[item].transmission[min_idx])
+        ec_id_array = self.ec_items_from_ranges()
+        print(ec_id_array)
+        ec_V = [self.ec_data.V[x] for x in ec_id_array]
+        for item in self.optical_data.transmission:
+            min_array.append(self.optical_data.transmission[item][min_idx])
+        self.parameter_plotting(ec_V, min_array)
+
+    def min_draw(self, data):
+        logging.info("please wait, drawing min data")
+        ec_V, lbd_min_dir = data
+        _, lbd_min_array = zip(*lbd_min_dir.items())
+        self.parameter_plotting(ec_V, lbd_min_array)
+
+    def min_meas_draw(self, data):
+        logging.info("please wait, drawing min data")
+        data_list = data.items()
+        meas, min = zip(*data_list)
+        self.parameter_plotting(meas, min)
+
+    def draw_iodm_meas(self, data):
+        logging.info('please wait, drawing IODM(meas)')
+        data_list = data.items()
+        meas, iodm = zip(*data_list)
+        self.parameter_plotting(meas, iodm)
+
+    def draw_iodm_v(self, data):
+        logging.info("please wait, drawing min data")
+        ec_V, iodm_array = data
+        self.parameter_plotting(ec_V, iodm_array)
+
+    def IODM_draw(self):
+        logging.info("please wait, drawing IODM data")
+        wvlgth_range = [self.lambda_start, self.lambda_from_slider]  # get wavelength range
+        self._gui_model_q.put(("calc iodm", wvlgth_range))
+        ec_data, iodm_data = self.optical_data.calc_IODM(wvlgth_range)
+        self.parameter_plotting(ec_data, iodm_data)
+
+    def parameter_plotting(self, x, y):
+        self.parameter_teardown()
         min_ax = self.min_figure.add_subplot(111)
-        min_ax.plot(min_array, '.')
-        min_ax.set_xlabel('sample number')
-        min_ax.set_ylabel('T [dB]')
+        min_ax.plot(x, y, '.')
+        param = self.param_option_string.get()
+        if param == 'λ(V)':
+            min_ax.set_xlabel('U [V]')
+            min_ax.set_ylabel('λ [nm]')
+        elif param == 'λ(meas)':
+            min_ax.set_xlabel('measurement [samples]')
+            min_ax.set_ylabel('λ [nm]')
+        elif param == 'IODM(V)':
+            min_ax.set_xlabel('U [V]')
+            min_ax.set_ylabel('IODM')
+        elif param == 'IODM(meas)':
+            min_ax.set_xlabel('measurement [samples]')
+            min_ax.set_ylabel('IODM')
         self.min_figure.tight_layout()
         self.min_figure.canvas.draw()
 
@@ -370,11 +513,10 @@ class View:
         canvas.get_tk_widget().pack(side=tkinter.TOP)
         canvas.draw()
 
-        min_redraw_button = ttk.Button(self.minframe, text="Redraw", command=self.min_redraw)
-        self.min_option_string = tkinter.StringVar()
-        min_option = ttk.Combobox(self.minframe, textvariable=self.min_option_string)
-        min_option['values'] = ('min', 'IODM')
-
+        min_redraw_button = ttk.Button(self.minframe, text="Redraw", command=self.model_send_params)
+        self.param_option_string = tkinter.StringVar()
+        min_option = ttk.Combobox(self.minframe, textvariable=self.param_option_string)
+        min_option['values'] = ('λ(V)', 'λ(meas)', 'IODM(V)', 'IODM(meas)', 'cross section')
         min_redraw_button.pack(side=tkinter.RIGHT)
         min_option.pack(side=tkinter.LEFT, padx=3)
         min_option.current(0)
@@ -388,21 +530,14 @@ class View:
         self.logger_text.tag_config('CRITICAL', foreground='red', underline=1)
         self.logger_text.grid()
 
-    def askopenfile_opto(self):
-        filename = filedialog.askopenfilename(initialdir="/", title="Select file",
+    def askopenfile_ec_csv(self):
+        filename = filedialog.askopenfilename(initialdir=self.initialdir, title="Select file",
                                               filetypes=(("csv files", "*.csv"), ("all files", "*.*")))
         if not filename:
             pass
         else:
-            self._gui_ctrl_q.put(("load opto file", filename))
-
-    def askopenfile_ec(self):
-        filename = filedialog.askopenfilename(initialdir="/", title="Select file",
-                                              filetypes=(("csv files", "*.csv"), ("all files", "*.*")))
-        if not filename:
-            pass
-        else:
-            self._gui_ctrl_q.put(("load ec file", filename))
+            self._gui_model_q.put(("load ec csv", filename))
+            self.initialdir = os.path.dirname(filename)
 
     def on_closing(self):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
@@ -434,7 +569,7 @@ class RoundedDoubleVar(tkinter.DoubleVar):
 
 
 class DraggableRectangle:
-    def __init__(self, rect, x, y, background):
+    def __init__(self, rect, x, background, y=None):
         self.rect = rect
         self.bg = background
         self.press = None
@@ -470,10 +605,11 @@ class DraggableRectangle:
         #print('x0=%f, xpress=%f, event.xdata=%f, dx=%f, x0+dx=%f' %
         #      (x0, xpress, event.xdata, dx, x0+dx))
         self.rect.set_x(x0+dx)
-        self.rect.set_y(y0+dy)
-
         self.x.set(x0+dx)
-        self.y.set(y0+dy)
+
+        if self.y:
+            self.rect.set_y(y0+dy)
+            self.y.set(y0+dy)
         self.rect.figure.canvas.restore_region(self.bg)
         self.rect.axes.draw_artist(self.rect)
         self.rect.figure.canvas.blit(self.rect.figure.bbox)
