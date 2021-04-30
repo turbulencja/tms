@@ -85,7 +85,10 @@ class View:
                 elif order == "draw opto":
                     self.optical_data = data
                     self.opto_teardown()
+                    # try:
                     self.draw_optical()
+                    # except ValueError:
+                    #     logging.error("cannot draw optical data. is ec file loaded?")
                 elif order == "send ec ranges":
                     ec_ranges = self.find_ec_range()
                     self._gui_model_q.put(("ec range", ec_ranges))
@@ -283,8 +286,11 @@ class View:
             elif ec_start_inside and not self.in_rectangle(ec_id):
                 yield ec_start_inside, ec_id
                 ec_start_inside = None
-        if self.in_rectangle(self.ec_data.id[-1]):
-            yield ec_start_inside, self.ec_data.id[-1]
+        if ec_start_inside:
+            if self.in_rectangle(self.ec_data.id[-1]):
+                yield ec_start_inside, self.ec_data.id[-1]
+            else:
+                yield ec_start_inside, self.ec_data.id[-2]
 
     def in_rectangle(self, ec_id):
         point_x = self.ec_data.V[ec_id]

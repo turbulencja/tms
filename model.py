@@ -6,7 +6,9 @@ from ec_dataset import ElectroChemSet
 from queue import Empty
 from opto_dataset import OptoDatasetB
 import numpy as np
+import pandas as pd
 import tms_exceptions as tms_exc
+import os
 
 
 class Model(threading.Thread):
@@ -38,10 +40,16 @@ class Model(threading.Thread):
             else:
                 if order == 'λ(V)':
                     self.wavelength_range = data
-                    self.send_lbd_v()
+                    try:
+                        self.send_lbd_v()
+                    except KeyError:
+                        logging.error("optical file out of scope")
                 elif order == 'λ(meas)':
                     self.wavelength_range = data
-                    self.send_lbd_meas()
+                    try:
+                        self.send_lbd_meas()
+                    except KeyError:
+                        logging.error("optical file out of scope")
                 elif order == "IODM(V)":
                     self.wavelength_range = data
                     self.send_iodm_v()
@@ -64,7 +72,10 @@ class Model(threading.Thread):
                 elif order == "wavelength range":
                     self.wavelength_range = data
                 elif order == "load opto csv":
-                    self.read_opto_csv(data)
+                    try:
+                        self.read_opto_csv(data)
+                    except UnicodeDecodeError:
+                        logging.error("optical file corrupted")
                 elif order == "load ec csv":
                     self.read_ec_csv(data)
                 else:
@@ -84,13 +95,10 @@ class Model(threading.Thread):
 
     def send_lbd_meas(self):
         # todo: refactor; should be done by opto_dataset
-        try:
-            ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
-            wavelength_range_ids = self.calc_wavelength_range_ids()
-            min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
-            self._model_gui_queue.put(("λ(meas)", min_lbd_dict))
-        except KeyError:
-            logging.error("optical file out of scope")
+        ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
+        wavelength_range_ids = self.calc_wavelength_range_ids()
+        min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
+        self._model_gui_queue.put(("λ(meas)", min_lbd_dict))
 
     def calc_wavelength_range_ids(self):
         wvlgth_start = self.find_nearest_lambda(self.wavelength_range[0], self.opto_dataset.wavelength)
@@ -100,22 +108,27 @@ class Model(threading.Thread):
         return wavelength_range_ids
 
     def send_lbd_v(self):
-        try:
-            ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
-            wavelength_range_ids = self.calc_wavelength_range_ids()
-            min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
-            v = [self.ec_dataset.V[item] for item in self.ec_items]
-            self._model_gui_queue.put(("λ(V)", (v, min_lbd_dict)))
-        except KeyError:
-            logging.error("optical file out of scope")
+        ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
+        wavelength_range_ids = self.calc_wavelength_range_ids()
+        min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
+        v = [self.ec_dataset.V[item] for item in self.ec_items]
+        self._model_gui_queue.put(("λ(V)", (v, min_lbd_dict)))
 
     def read_opto_csv(self, filename):
         # filename = "dane/Kasia_2021.02.01/opto_2021_02_01_11_46_26.csv"
         logging.info("reading file: {}".format(filename))
-        data = np.genfromtxt(filename, delimiter=',')
+        # df = pd.read_csv(filename)
+        # data = df.to_numpy()
+        data = np.genfromtxt(filename, delimiter=',', encoding='utf-8', dtype=int)
+        logging.info("the shape of you {}".format(data.shape))
         new_opto_dataset = OptoDatasetB()
         new_opto_dataset.insert_opto_from_csv(data)
-        new_opto_dataset.wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)
+        path = os.getcwd()
+        try:
+            new_opto_dataset.wavelength = np.genfromtxt(path+r'\wavelengths.csv', delimiter=',')
+        except OSError:
+            logging.error("no wavelength file, generating wavelength vector automatically")
+            new_opto_dataset.wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)
         if self.ec_items:
             new_opto_dataset.ec_ids = self.ec_items
         else:
@@ -127,6 +140,8 @@ class Model(threading.Thread):
     def read_ec_csv(self, filename):
         # filename = "dane/Kasia_2021.02.01/ech_pr_2021_02_01_11_46_26.csv"
         logging.info("reading file: {}".format(filename))
+        # df = pd.read_csv(filename)
+        # data = df.to_numpy()
         data = np.genfromtxt(filename, delimiter=',')
         new_ec_dataset = ElectroChemSet()
         new_ec_dataset.insert_ec_csv(data)
