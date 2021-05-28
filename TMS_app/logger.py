@@ -40,7 +40,7 @@ def logger_setup():
     logger.addHandler(queue_handler)
 
     try:
-        makedirs('TMS logs')
+        makedirs('../TMS logs')
     except FileExistsError:
         pass
 

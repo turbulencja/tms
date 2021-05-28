@@ -1,11 +1,11 @@
 import os
-from opto_dataset import OptoDatasetB
-from ec_dataset import ElectroChemSet
+from TMS_app.opto_dataset import OptoDatasetB
+from TMS_app.ec_dataset import ElectroChemSet
 import numpy as np
 import matplotlib.pyplot as plt
 
 root_cv = r'C:\Users\aerial triceratops\PycharmProjects\TechMatStrateg\dane\pendrive\18052021 Awidyna-biotyna 0.1Pa'
-wvlgth_path = r'C:\Users\aerial triceratops\PycharmProjects\TechMatStrateg\wavelength.txt'
+wvlgth_path = r'wavelength.txt'
 wavelength_range = [600, 750]  # w nm
 
 
