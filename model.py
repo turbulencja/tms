@@ -16,12 +16,13 @@ class Model(threading.Thread):
     def __init__(self, **kwargs):
         threading.Thread.__init__(self)
         self.daemon = True
-        self.db_name = None
+        self.filename = None
         self.opto_dataset = None
         self.ec_dataset = None
 
         self.ec_items = None
         self.wavelength_range = None
+        self.iodm_window_size = 100  # nm
 
         self._ctrl_model_queue = kwargs['ctrl_model_queue']
         self._model_ctrl_queue = kwargs['model_ctrl_queue']
@@ -56,9 +57,9 @@ class Model(threading.Thread):
                 elif order == "IODM(meas)":
                     self.wavelength_range = data
                     self.send_iodm_meas()
-                elif order == "cross section":
+                elif order == 'λ(V)+IODM(V)':
                     self.wavelength_range = data
-                    pass
+                    self.send_iodm_lbd()
                 elif order == "draw ec" and self.ec_dataset:
                     # todo fix
                     self.send_ec_data()
@@ -87,18 +88,39 @@ class Model(threading.Thread):
         self._model_gui_queue.put(("IODM(meas)", iodm))
 
     def send_iodm_v(self):
-        wavelength_range_ids = self.calc_wavelength_range_ids()
-        iodm_dict = self.opto_dataset.send_IODM(self.ec_items, wavelength_range_ids, reference=0)
+        # wavelength_range_ids = self.calc_wavelength_range_ids()  # not used for automatic_IODM
+        iodm_dict, wavelength_start = self.opto_dataset.automatic_IODM(self.ec_items, self.iodm_window_size)
         _, iodm = zip(*iodm_dict.items())
         v = [self.ec_dataset.V[item] for item in self.ec_items]
         self._model_gui_queue.put(("IODM(V)", (v, iodm)))
 
-    def send_lbd_meas(self):
-        # todo: refactor; should be done by opto_dataset
-        ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
+    def send_iodm_lbd(self):
         wavelength_range_ids = self.calc_wavelength_range_ids()
+        iodm_dict, iodm_wavelength_start, iodm_wavelength_stop = self.opto_dataset.automatic_IODM(self.ec_items, self.iodm_window_size)
+        _, iodm = zip(*iodm_dict.items())
+        v = [self.ec_dataset.V[item] for item in self.ec_items]
+        #
+        ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
         min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
-        self._model_gui_queue.put(("λ(meas)", min_lbd_dict))
+        self._model_gui_queue.put(('λ(V)+IODM(V)', (v, iodm, min_lbd_dict)))
+        self.write_csv(v, iodm, min_lbd_dict, iodm_wavelength_start, iodm_wavelength_stop)
+
+    def write_csv(self, v, iodm, min_lbd_dict, iodm_wavelength_start, iodm_wavelength_stop):
+        _, lbd_min_array = zip(*min_lbd_dict.items())
+        iodm_start = [iodm_wavelength_start]*len(self.ec_items)
+        iodm_stop = [iodm_wavelength_stop] * len(self.ec_items)
+        uA = [self.ec_dataset.uA[item] for item in self.ec_items]
+        data = [v, uA, lbd_min_array, iodm, iodm_start, iodm_stop]
+        data_np = np.array(data)
+        data_vertical = data_np.transpose()
+        header = 'U[V],I[A],lbd[nm],IODM,IODM range 1[nm], IODM range 2[nm]'
+        np.savetxt(self.filename, data_vertical, delimiter=',', header=header)
+
+    # def send_lbd_meas(self):
+        # ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
+        # wavelength_range_ids = self.calc_wavelength_range_ids()
+        # min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
+        # self._model_gui_queue.put(("λ(meas)", min_lbd_dict))
 
     def calc_wavelength_range_ids(self):
         wvlgth_start = self.find_nearest_lambda(self.wavelength_range[0], self.opto_dataset.wavelength)
@@ -114,18 +136,21 @@ class Model(threading.Thread):
         v = [self.ec_dataset.V[item] for item in self.ec_items]
         self._model_gui_queue.put(("λ(V)", (v, min_lbd_dict)))
 
+    def convert_filename(self, filename):
+        root = os.path.dirname(os.path.abspath(filename))
+        prefix, filename = os.path.basename(filename).split('_',1)
+        result_fname = os.path.join(root, filename)
+        return result_fname
+
     def read_opto_csv(self, filename):
-        # filename = "dane/Kasia_2021.02.01/opto_2021_02_01_11_46_26.csv"
         logging.info("reading file: {}".format(filename))
-        # df = pd.read_csv(filename)
-        # data = df.to_numpy()
+        self.filename = self.convert_filename(filename)
         data = np.genfromtxt(filename, delimiter=',', encoding='utf-8', dtype=int)
-        logging.info("the shape of you {}".format(data.shape))
         new_opto_dataset = OptoDatasetB()
         new_opto_dataset.insert_opto_from_csv(data)
         path = os.getcwd()
         try:
-            new_opto_dataset.wavelength = np.genfromtxt(path+r'\wavelengths.csv', delimiter=',')
+            new_opto_dataset.wavelength = np.genfromtxt(path+r'\wavelength.txt', delimiter=',')[2:]
         except OSError:
             logging.error("no wavelength file, generating wavelength vector automatically")
             new_opto_dataset.wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)

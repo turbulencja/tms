@@ -85,23 +85,23 @@ class View:
                 elif order == "draw opto":
                     self.optical_data = data
                     self.opto_teardown()
-                    # try:
-                    self.draw_optical()
-                    # except ValueError:
-                    #     logging.error("cannot draw optical data. is ec file loaded?")
+                    try:
+                        self.draw_optical()
+                    except ValueError:
+                        logging.error("cannot draw optical data. is ec file loaded?")
                 elif order == "send ec ranges":
                     ec_ranges = self.find_ec_range()
                     self._gui_model_q.put(("ec range", ec_ranges))
                 elif order == "IODM(V)":
                     self.draw_iodm_v(data)
-                elif order == "IODM(meas)":
-                    self.draw_iodm_meas(data)
+                # elif order == "IODM(meas)":
+                #     self.draw_iodm_meas(data)
                 elif order == 'λ(V)':
                     self.min_draw(data)
-                elif order == 'λ(meas)':
-                    self.min_meas_draw(data)
-                elif order == 'cross section':
-                    pass
+                # elif order == 'λ(meas)':
+                #     self.min_meas_draw(data)
+                elif order == 'λ(V)+IODM(V)':
+                    self.min_iodm_draw(data)
                 else:
                     logging.info("unrecognized order from model: {}".format(order))
         self.window.after(400, self.poll_data_queue)
@@ -118,7 +118,7 @@ class View:
         self.opto_figure.tight_layout()
         self.opto_figure.canvas.draw()
         self.opto_bg = self.opto_figure.canvas.copy_from_bbox(self.opto_figure.bbox)
-        x = 550
+        x = 600
         dx = 170
         y = opto_ax.get_ylim()[0]
         dy = opto_ax.get_ylim()[1]
@@ -353,16 +353,16 @@ class View:
 
         set_theme()
 
-        self.topframe.pack(side=tkinter.TOP)
+        self.topframe.pack(side=tkinter.TOP, anchor='e')
         self.bottomframe.pack(side=tkinter.BOTTOM)
 
-        self.duckframe.grid(row=1, column=0)
-        self.optoframe.grid(row=1, column=1)
-        self.minframe.grid(row=1, column=2)
+        self.duckframe.grid(sticky="E", row=1, column=0)
+        self.optoframe.grid(sticky="E", row=1, column=1)
+        self.minframe.grid(sticky="E", row=1, column=2)
 
-        self.top_duckframe.grid(row=0, column=0)
-        self.top_optoframe.grid(row=0, column=1)
-        self.top_minframe.grid(row=0, column=2)
+        self.top_duckframe.grid(sticky="E", row=0, column=0)
+        self.top_optoframe.grid(sticky="E", row=0, column=1)
+        self.top_minframe.grid(sticky="E", row=0, column=2)
 
         self.bottom_optoframe.pack(side=tkinter.BOTTOM)
 
@@ -462,23 +462,17 @@ class View:
             min_array.append(self.optical_data.transmission[item][min_idx])
         self.parameter_plotting(ec_V, min_array)
 
+    def min_iodm_draw(self, data):
+        logging.info("please wait, drawing min+iodm data")
+        ec_V, iodm, lbd_min_dir = data
+        _, lbd_min_array = zip(*lbd_min_dir.items())
+        self.two_parameter_plotting(ec_V, iodm, lbd_min_array)
+
     def min_draw(self, data):
         logging.info("please wait, drawing min data")
         ec_V, lbd_min_dir = data
         _, lbd_min_array = zip(*lbd_min_dir.items())
         self.parameter_plotting(ec_V, lbd_min_array)
-
-    def min_meas_draw(self, data):
-        logging.info("please wait, drawing min data")
-        data_list = data.items()
-        meas, min = zip(*data_list)
-        self.parameter_plotting(meas, min)
-
-    def draw_iodm_meas(self, data):
-        logging.info('please wait, drawing IODM(meas)')
-        data_list = data.items()
-        meas, iodm = zip(*data_list)
-        self.parameter_plotting(meas, iodm)
 
     def draw_iodm_v(self, data):
         logging.info("please wait, drawing min data")
@@ -491,6 +485,23 @@ class View:
         self._gui_model_q.put(("calc iodm", wvlgth_range))
         ec_data, iodm_data = self.optical_data.calc_IODM(wvlgth_range)
         self.parameter_plotting(ec_data, iodm_data)
+
+    def two_parameter_plotting(self, ec_V, iodm, lbd_min):
+        self.parameter_teardown()
+        min_ax = self.min_figure.add_subplot(111)
+        color = 'b'
+        min_ax.plot(ec_V, lbd_min, '.', color=color)
+        min_ax.set_xlabel('U [V]')
+        min_ax.set_ylabel('λ [nm]', color=color)
+
+        color = 'r'
+        iodm_ax = min_ax.twinx()
+        iodm_ax.plot(ec_V, iodm, '.', color=color)
+        iodm_ax.set_ylabel('IODM', color=color)
+
+        self.min_figure.tight_layout()
+        self.min_figure.canvas.draw()
+
 
     def parameter_plotting(self, x, y):
         self.parameter_teardown()
@@ -522,7 +533,7 @@ class View:
         min_redraw_button = ttk.Button(self.minframe, text="Redraw", command=self.model_send_params)
         self.param_option_string = tkinter.StringVar()
         min_option = ttk.Combobox(self.minframe, textvariable=self.param_option_string)
-        min_option['values'] = ('λ(V)', 'λ(meas)', 'IODM(V)', 'IODM(meas)', 'cross section')
+        min_option['values'] = ('λ(V)+IODM(V)', 'λ(V)', 'IODM(V)')
         min_redraw_button.pack(side=tkinter.RIGHT)
         min_option.pack(side=tkinter.LEFT, padx=3)
         min_option.current(0)

@@ -1,3 +1,6 @@
+import logging
+
+
 class ElectroChemSet:
     def __init__(self, name=None):
         self.name = name
@@ -12,7 +15,10 @@ class ElectroChemSet:
         self.id = ec_id
 
     def insert_ec_csv(self, ec_data):
-        V, uA = zip(*ec_data)
-        self.V = V
-        self.uA = uA
-        self.id = list(range(len(V)))
+        try:
+            V, uA = zip(*ec_data)
+            self.V = V
+            self.uA = uA
+            self.id = list(range(len(V)))
+        except ValueError:
+            logging.error("doesn't seem like it's the right file")
