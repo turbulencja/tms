@@ -1,6 +1,6 @@
 from itertools import islice
 import numpy as np
-from data_magic import smooth
+from scipy.signal import general_gaussian
 from collections import OrderedDict
 from scipy.optimize import curve_fit
 
@@ -9,18 +9,12 @@ class OptoDatasetB:
         self.name = ""
         self.wavelength = []
         self.transmission = OrderedDict()
-        self.wavelength_range = [570, 770]
+        self.fit_range = None
+        self.iodm_initial_range = None
         self.ec_ids = []
 
     def generate_data_for_plotting(self):
-        ec_ids = self.transmission.keys()
-        if len(ec_ids) <= 20:
-            ec_items = ec_ids[::20]
-        else:
-            ec_items = ec_ids
         transmission_sub_dict = dict(islice(self.transmission.items(), 0, None, 20))
-        # transmission_sub_dict = {k: self.transmission[k][::20] for k in ec_items}
-        # return transmission_sub_dict, self.wavelength[::20]
         return transmission_sub_dict, self.wavelength
 
     def calc_sum_of_transmission(self, ec_id, wavelength_range):
@@ -28,14 +22,15 @@ class OptoDatasetB:
         sum_of_transmission = sum(transmission[wavelength_range[0]:wavelength_range[1]])
         return sum_of_transmission
 
-    def send_IODM(self, ec_ids, wavelength_range, **kwargs):
+    def send_IODM(self, ec_ids, wavelength_range):
         iodm = {}
-        ref_id = kwargs['reference']
-        ref = self.calc_sum_of_transmission(ref_id, wavelength_range)
+        ref_id = 0
+        wavelength_range_idx = [self.find_nearest(wavelength_range[0])[0], self.find_nearest(wavelength_range[1])[0]]
+        ref = self.calc_sum_of_transmission(ref_id, wavelength_range_idx)
         for ec_id in ec_ids:
-            sum = self.calc_sum_of_transmission(ec_id, wavelength_range)
+            sum = self.calc_sum_of_transmission(ec_id, wavelength_range_idx)
             iodm[ec_id] = sum/ref
-        return iodm
+        return iodm, wavelength_range[0], wavelength_range[1]
 
     def automatic_IODM(self, ec_ids, window_size):
         '''
@@ -52,12 +47,12 @@ class OptoDatasetB:
         diff, num_diff = 0, 0
         for num, row in enumerate(ftrans_matrix.transpose()):
             tmp = row.max()-row.min()
-            if tmp > diff:
+            if tmp > diff and self.iodm_initial_range[0]-window_size <= num <= self.iodm_initial_range[1]:
                 diff = tmp
                 num_diff = num
         iodm_lst = ftrans_matrix.transpose()[num_diff]
         iodm_dict = {ec_id: iodm_lst[num] for num, ec_id in enumerate(ec_ids)}
-        return iodm_dict, self.wavelength[num], self.wavelength[num+window_size_smpl]
+        return iodm_dict, self.wavelength[num_diff], self.wavelength[num_diff+window_size_smpl]
 
     def running_ftrans(self, ec_ids, window_size, cutoff=None):
         if cutoff is None:
@@ -86,49 +81,69 @@ class OptoDatasetB:
         end_wlgth, _ = self.find_nearest(self.wavelength[0] + window_size)
         return end_wlgth
 
+    def calc_fit_range(self):
+        ref = self.transmission[0]
+        cutoff, _ = self.find_nearest(700)
+        fft_ref = self.fft_smooth(ref)
+        derivative_fft = np.gradient(fft_ref)
+
+        deriv_first = derivative_fft[:cutoff]
+        deriv_last = derivative_fft[cutoff:]
+        fft_first = fft_ref[:cutoff]
+        fft_last = fft_ref[cutoff:]
+
+        first_peak = self.calc_maximal_peak(deriv_first, fft_first)[0][0]
+        last_peak = self.calc_maximal_peak(deriv_last, fft_last)[0][0] + cutoff
+
+        cut_derivative_fft = derivative_fft[first_peak:last_peak]
+        infl_min = np.where(cut_derivative_fft == cut_derivative_fft.min())[0][0] + first_peak
+        infl_max = np.where(cut_derivative_fft == cut_derivative_fft.max())[0][0] + first_peak
+        return infl_min, infl_max
+
+    def calc_auto_fit(self):
+        if not self.fit_range:
+            self.fit_range = self.calc_fit_range()
+        fit_lbd = {}
+        start, stop = self.fit_range[0], self.fit_range[1]
+        wavelength_cut = np.array(self.wavelength[start:stop])
+        for ec_id in self.transmission:
+            data_cut = self.transmission[ec_id][start:stop]
+            y_line = self.calc_fit(wavelength_cut, data_cut)
+            idx = np.argmin(y_line)
+            if ec_id == 0:
+                self.iodm_initial_range = [start-100, start+100]
+                # self.iodm_initial_range = [start, start+idx]
+            fit_lbd[ec_id] = wavelength_cut[idx]
+        return fit_lbd
+
     def fit_min(self, transmission):
         fit_lbd = {}
-        start, _ = self.find_nearest(self.wavelength_range[0])
-        stop, _ = self.find_nearest(self.wavelength_range[1])
+        if not self.fit_range:
+            self.fit_range = self.calc_fit_range()
+        start, _ = self.find_nearest(self.fit_range[0])
+        stop, _ = self.find_nearest(self.fit_range[1])
         wavelength_cut = np.array(self.wavelength[start:stop])
-        # wavelength_fit = np.linspace(start, stop, num=500)
         for ec_id in transmission:
             data_cut = transmission[ec_id][start:stop]
-            # curve fit
-            popt, _ = curve_fit(self.objective, wavelength_cut, data_cut)
-            a, b, c = popt
-            # calculate the output for the range
-            y_line = self.objective(wavelength_cut, a, b, c)
+            y_line = self.calc_fit(wavelength_cut, data_cut)
             idx = np.argmin(y_line)
             fit_lbd[ec_id] = wavelength_cut[idx]
         return fit_lbd
 
-    def calc_min(self, transmission, wavelength_range):
+    def calc_min(self, transmission):
         min_lbd = {}
         for ec_id in transmission:
-            cutout = transmission[ec_id][wavelength_range[0]:wavelength_range[1]]
-            coutout_smooth = smooth(cutout)
+            cutout = transmission[ec_id][self.fit_range[0]:self.fit_range[1]]
+            coutout_smooth = self.fft_smooth(cutout)
             min_id = np.where(coutout_smooth == min(coutout_smooth))
-            idx = wavelength_range[0]+min_id[0][0]
+            idx = self.fit_range[0]+min_id[0][0]
             min_lbd[ec_id] = self.wavelength[idx]
         return min_lbd
-
-    def insert_opto_from_db(self, data_in):
-        ec_id, opto_from_db = zip(*data_in)
-        start = 0
-        start_ec = ec_id[0]
-        for num, ec_point in enumerate(ec_id):
-            if ec_point != start_ec:
-                self.transmission[start_ec] = opto_from_db[start:num]
-                start = num
-                start_ec = ec_point
-            else:
-                pass
 
     def insert_opto_from_csv(self, data_in):
         for num, opto_data in enumerate(data_in):
             self.transmission[num] = opto_data[2:]
-        # self.ec_id_range = self.transmission.keys()
+        self.fit_range = self.calc_fit_range()
 
     def find_nearest(self, value):
         diff = [abs(element - value) for element in self.wavelength]
@@ -136,6 +151,30 @@ class OptoDatasetB:
         val_real = self.wavelength[val_idx]
         return val_idx, val_real
 
+    def calc_fit(self, x_data, y_data):
+        popt, _ = curve_fit(self.quadratic_poly, x_data, y_data)
+        a, b, c = popt
+        fit_data = self.quadratic_poly(x_data, a, b, c)
+        return fit_data
+
     @staticmethod
-    def objective(x, a, b, c):
+    def quadratic_poly(x, a, b, c):
         return a * x + b * x ** 2 + c
+
+    @staticmethod
+    def calc_maximal_peak(deriv_arr, arr):
+        # 1. znalezc miejsca gdzie grad przechodzi przez 0
+        zero_crossings = np.where(np.diff(np.sign(deriv_arr)))[0]
+        # 2. znalezc miejsce maksymalnej wartosci dla punktów z #1
+        max_p = arr[zero_crossings].max()
+        idx_max_p = np.where(arr == max_p)
+        return idx_max_p
+
+    @staticmethod
+    def fft_smooth(X):
+        sigma = 40
+        m = 1
+        win = np.roll(general_gaussian(X.shape[0], m, sigma), X.shape[0] // 2)
+        fX = np.fft.fft(X)
+        Xf = np.real(np.fft.ifft(fX * win))
+        return Xf

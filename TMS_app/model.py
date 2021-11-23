@@ -22,6 +22,7 @@ class Model(threading.Thread):
 
         self.ec_items = None
         self.wavelength_range = None
+        self.iodm_range = None # todo!!!
         self.iodm_window_size = 100  # nm
 
         self._ctrl_model_queue = kwargs['ctrl_model_queue']
@@ -84,7 +85,7 @@ class Model(threading.Thread):
 
     def send_iodm_meas(self):
         wavelength_range_ids = self.calc_wavelength_range_ids()
-        iodm = self.opto_dataset.send_IODM(self.ec_items, wavelength_range_ids, reference=0)
+        iodm = self.opto_dataset.send_IODM(self.ec_items, wavelength_range_ids)
         self._model_gui_queue.put(("IODM(meas)", iodm))
 
     def send_iodm_v(self):
@@ -96,7 +97,13 @@ class Model(threading.Thread):
 
     def send_iodm_lbd(self):
         wavelength_range_ids = self.calc_wavelength_range_ids()
-        iodm_dict, iodm_wavelength_start, iodm_wavelength_stop = self.opto_dataset.automatic_IODM(self.ec_items, self.iodm_window_size)
+        if self.iodm_range is None:
+            iodm_dict, iodm_wavelength_start, iodm_wavelength_stop = self.opto_dataset.automatic_IODM(self.ec_items, self.iodm_window_size)
+            self.iodm_range = [iodm_wavelength_start, iodm_wavelength_stop]
+        else:
+            iodm_dict = self.opto_dataset.send_IODM(self.ec_items, self.iodm_range)
+            iodm_wavelength_start = self.iodm_range[0]
+            iodm_wavelength_stop = self.iodm_range[1]
         _, iodm = zip(*iodm_dict.items())
         v = [self.ec_dataset.V[item] for item in self.ec_items]
         #
