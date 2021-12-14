@@ -170,10 +170,7 @@ class Model(threading.Thread):
         self._model_gui_queue.put(("draw opto", self.opto_dataset))
 
     def read_ec_csv(self, filename):
-        # filename = "dane/Kasia_2021.02.01/ech_pr_2021_02_01_11_46_26.csv"
         logging.info("reading file: {}".format(filename))
-        # df = pd.read_csv(filename)
-        # data = df.to_numpy()
         data = np.genfromtxt(filename, delimiter=',')
         new_ec_dataset = ElectroChemSet()
         new_ec_dataset.insert_ec_csv(data)
