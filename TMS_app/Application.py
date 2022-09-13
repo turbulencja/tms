@@ -59,22 +59,26 @@ class View(tkinter.Frame):
             except ValueError:
                 logging.info("order misshap: {}".format(record))
             else:
-                if record[0] == "draw ec":
+                if order == "draw ec":
                     self.ec_data = data
                     self.duck_frame.electrochemical_teardown()
                     self.duck_frame.draw_electrochemical()
-                elif record[0] == "draw opto":
+                elif order == "draw opto":
                     self.optical_data = data
                     self.opto_frame.opto_teardown()
                     try:
                         self.opto_frame.draw_optical()
                     except ValueError:
                         logging.error("cannot draw optical data. is ec file loaded?")
-                elif record[0] == 'send ec ranges':
+                elif order == 'number of cycles':
+                    self.cycles = data
+                    self.duck_frame.cycle
+                elif order == 'send ec ranges':
+                    logging.info("ec range request")
                     ec_ranges = self.duck_frame.find_ec_range()
                     self.gui_model_q.put(("ec range", ec_ranges))
                 else:
-                    logging.info("unrecognized order from ctrl: {}".format(record))
+                    logging.info("unrecognized order from model: {}".format(record))
         self.after(400, self.poll_data_queue)
 
     def setup_frames(self):
@@ -96,16 +100,20 @@ class DuckFrame(tkinter.Frame):
         self.duck_figure = Figure(figsize=(5, 3))
         self.duck_figure.patch.set_facecolor('#f0f0f0')
         canvas = FigureCanvasTkAgg(self.duck_figure, master=self)
-        canvas.get_tk_widget().grid(row=0, column=2, rowspan=2, columnspan=2)
+        canvas.get_tk_widget().grid(row=0, column=1, rowspan=3, columnspan=2)
         canvas.draw()
-        self.duck_slider_v = ttk.Scale(self, length=350, from_=-0.5, to_=1.5)
-        self.duck_slider_ua = ttk.Scale(self, length=250, from_=-0.5, to_=1.5, orient=tkinter.VERTICAL)
-
-        self.duck_slider_v.grid(row=2, column=2)
-        self.duck_slider_ua.grid(row=0, column=1)
 
         ec_file_button = ttk.Button(self, text="Browse for ec data", command=self.askopenfile_ec_csv)
-        ec_file_button.grid(row=4, column=2)
+        ec_file_button.grid(row=4, column=1)
+
+        ec_cycle1_button = ttk.Button(self, text="cycle 1", command=self.find_ec_range(cycle=0))
+        ec_cycle1_button.grid(row=0, column=0)
+        ec_cycle2_button = ttk.Button(self, text="cycle 2", command=self.find_ec_range(cycle=1))
+        ec_cycle2_button.state(["disabled"])
+        ec_cycle2_button.grid(row=1, column=0)
+        ec_cycle3_button = ttk.Button(self, text="cycle 3", command=self.find_ec_range(cycle=2))
+        ec_cycle3_button.state(["disabled"])
+        ec_cycle3_button.grid(row=2, column=0)
 
     def askopenfile_ec_csv(self):
         filename = filedialog.askopenfilename(initialdir=self.parent.initialdir, title="Select file",
@@ -114,7 +122,7 @@ class DuckFrame(tkinter.Frame):
             pass
         else:
             self.parent.gui_model_q.put(("load ec csv", filename))
-            self.initialdir = os.path.dirname(filename)
+            self.parent.initialdir = os.path.dirname(filename)
 
     def draw_electrochemical(self):
         logging.info("please wait, drawing electrochemical data")
@@ -124,139 +132,23 @@ class DuckFrame(tkinter.Frame):
         duck_ax.set_ylabel('I [uA]')
         self.duck_figure.tight_layout()
         self.duck_figure.canvas.draw()
-        self.duck_bg = self.duck_figure.canvas.copy_from_bbox(self.duck_figure.bbox)
         x = min(self.parent.ec_data.V)
-        dx = -x + max(self.parent.ec_data.V)
+        dx = max(self.parent.ec_data.V)
         y = min(self.parent.ec_data.uA)
-        dy = -y + max(self.parent.ec_data.uA)
-        rect = patches.Rectangle((x, y), dx, dy,
-                                 linewidth=1,
-                                 edgecolor=View.seaborn_colors[0],
-                                 facecolor=View.seaborn_colors[0],
-                                 alpha=0.25)
-        duck_ax.add_artist(rect)
-        duck_ax.draw_artist(rect)
+        dy = max(self.parent.ec_data.uA)
+
         self.duck_figure.canvas.draw()
 
-        self.voltage_from_slider = RoundedDoubleVar(self, dx)
-        self.current_from_slider = tkinter.DoubleVar(self, dy)
-        self.voltage_from_dr = RoundedDoubleVar(self, x)
-        self.current_from_dr = tkinter.DoubleVar(self, y)
-
-        self.voltage_from_slider.trace_add('write',
-                                           lambda *args: self.update_max_voltage(self.voltage_from_slider, *args))
-        self.current_from_slider.trace_add('write',
-                                           lambda *args: self.update_max_current(self.current_from_slider, *args))
-        self.voltage_from_dr.trace_add('write', lambda *args: self.update_min_voltage(self.voltage_from_dr, *args))
-        self.current_from_dr.trace_add('write', lambda *args: self.update_min_current(self.current_from_dr, *args))
-
-        self.duck_dr = DraggableRectangle(rect, self.voltage_from_dr, self.duck_bg, self.current_from_dr)
-        self.duck_dr.connect()
-
-        self.current_max_label = tkinter.Label(self, text='{:.3f}'.format(dy / self.parent.micro), width=8)
-        self.current_min_label = tkinter.Label(self, text='{:.3f}'.format(y / self.parent.micro), width=8)
-        self.voltage_max_label = tkinter.Label(self, text='{:.2f}'.format(dx))
-        self.voltage_min_label = tkinter.Label(self, text='{:.2f}'.format(x))
-
-        self.duck_slider_v = ttk.Scale(self,
-                                       from_=0,
-                                       to_=max(self.parent.ec_data.V) - min(self.parent.ec_data.V),
-                                       length=300,
-                                       variable=self.voltage_from_slider)
-        self.duck_slider_ua = ttk.Scale(self,
-                                        length=250,
-                                        from_=max(self.parent.ec_data.uA) - min(self.parent.ec_data.uA),
-                                        to_=0,
-                                        variable=self.current_from_slider,
-                                        orient=tkinter.VERTICAL)
-
-        self.current_max_label.grid(row=0, column=0)
-        self.current_min_label.grid(row=1, column=0)
-        self.voltage_min_label.grid(row=3, column=2)
-        self.voltage_max_label.grid(row=3, column=3)
-
-        self.duck_slider_ua.grid(row=0, column=1, rowspan=2)
-        self.duck_slider_v.grid(row=2, column=2, columnspan=2)
-
-    def find_ec_range(self):
-        logging.info("calculating ec ranges")
-        if self.in_rectangle(self.parent.ec_data.id[0]):
-            ec_start_inside = 0
-        else:
-            ec_start_inside = None
-        for ec_id in self.parent.ec_data.id[1:-1]:
-            if not ec_start_inside and self.in_rectangle(ec_id):
-                ec_start_inside = ec_id
-            elif ec_start_inside and not self.in_rectangle(ec_id):
-                yield ec_start_inside, ec_id
-                ec_start_inside = None
-        if ec_start_inside:
-            if self.in_rectangle(self.parent.ec_data.id[-1]):
-                yield ec_start_inside, self.parent.ec_data.id[-1]
-            else:
-                yield ec_start_inside, self.parent.ec_data.id[-2]
-
-    def in_rectangle(self, ec_id):
-        point_x = self.parent.ec_data.V[ec_id]
-        point_y = self.parent.ec_data.uA[ec_id]
-        dx = self.voltage_from_slider.get()
-        dy = self.current_from_slider.get()
-        x = self.voltage_from_dr.get()
-        y = self.current_from_dr.get()
-        if x <= point_x <= x + dx and y <= point_y <= y + dy:
-            return True
-        else:
-            return False
+    def find_ec_range(self, cycle=1):
+        logging.info(f"plotting cycle {cycle+1}")
+        self.parent.gui_model_q.put(("draw cycle", cycle))
+        #  todo
 
     def electrochemical_teardown(self):
         self.duck_figure.clf()
-        self.duck_slider_v.destroy()
-        self.duck_slider_ua.destroy()
-        self.current_from_slider = None
-        self.voltage_from_slider = None
-        self.duck_bg = None
-        self.duck_dr = None
-        try:
-            self.current_max_label.destroy()
-            self.current_min_label.destroy()
-            self.voltage_max_label.destroy()
-            self.voltage_min_label.destroy()
-        except AttributeError:
-            pass
 
     def update_ec_range(self):
-        ec_range = self.find_ec_range()
-        self.parent.gui_model_q.put(("ec range", ec_range))
-
-    def update_max_voltage(self, v, *args):
-        voltage = self.voltage_from_slider.get()
-        self.duck_dr.reshape_x(float(voltage))
-        self.voltage_max_label.configure(text="{} V".format(v.round_string()))
-        self.update_ec_range()
-
-    def update_min_voltage(self, v, *args):
-        self.voltage_min_label.configure(text="{} V".format(v.round_string()))
-        self.update_ec_range()
-
-    def update_max_current(self, ua, *args):
-        current = ua.get()
-        self.duck_dr.reshape_y(float(current))
-        self.current_max_label.configure(text="{:.3f} uA".format(current/self.parent.micro))
-        self.update_ec_range()
-
-    def update_min_current(self, ua, *args):
-        current = ua.get()
-        self.current_min_label.configure(text="{:.3f} uA".format(current/self.parent.micro))
-        self.update_ec_range()
-
-    def draw_ec_vline(self, voltage):
-        self.duck_dr.reshape_x(float(voltage))
-        self.voltage_max_label.configure(text="{} V".format(self.voltage_from_slider.round_string()))
-
-    def draw_ec_ualine(self, current):
-        self.duck_dr.reshape_y(float(current))
-        self.current_max_label.configure(text="{} uA".format(self.current_from_slider.round_string()))
-
+        pass
 
 
 class OptoFrame(tkinter.Frame):
@@ -298,7 +190,7 @@ class OptoFrame(tkinter.Frame):
             pass
         else:
             self.parent.gui_model_q.put(("load opto csv", filename))
-            self.initialdir = os.path.dirname(filename)
+            self.parent.initialdir = os.path.dirname(filename)
 
 
 class ParamFrame(tkinter.Frame):
@@ -333,6 +225,23 @@ class ParamFrame(tkinter.Frame):
             else:
                 self.display_log(record)
         self.after(100, self.poll_log_queue)
+
+
+class CycleButton(ttk.Button):
+    def __init__(self, parent, text, cycle):
+        """
+        :param parent:
+        :param cycle: dict {'cycle_no': int(cycle_no)
+                            'first_meas': int(first_meas)
+                            'last_meas': int(last_meas)]}
+        """
+        self.parent = parent
+        self.cycle = cycle
+        button_text = "Cycle {}".format(self.cycle['cycle_no'])
+        ttk.Button.__init__(self, parent, text=button_text, command=self.button_command())
+
+    def button_command(self):
+        pass
 
 
 class AnalysisFrame(tkinter.Frame):
@@ -406,76 +315,6 @@ class RoundedDoubleVar(tkinter.DoubleVar):
         return "{:.2f}".format(self.get())
 
 
-class DraggableRectangle:
-    def __init__(self, rect, x, background, y=None):
-        self.rect = rect
-        self.bg = background
-        self.press = None
-        self.x = x
-        self.y = y
-
-    def connect(self):
-        'connect to all the events we need'
-        self.cidpress = self.rect.figure.canvas.mpl_connect(
-            'button_press_event', self.on_press)
-        self.cidrelease = self.rect.figure.canvas.mpl_connect(
-            'button_release_event', self.on_release)
-        self.cidmotion = self.rect.figure.canvas.mpl_connect(
-            'motion_notify_event', self.on_motion)
-
-    def on_press(self, event):
-        'on button press we will see if the mouse is over us and store some data'
-        if event.inaxes != self.rect.axes: return
-
-        contains, attrd = self.rect.contains(event)
-        if not contains: return
-        # print('event contains', self.rect.xy)
-        x0, y0 = self.rect.xy
-        self.press = x0, y0, event.xdata, event.ydata
-
-    def on_motion(self, event):
-        'on motion we will move the rect if the mouse is over us'
-        if self.press is None: return
-        if event.inaxes != self.rect.axes: return
-        x0, y0, xpress, ypress = self.press
-        dx = event.xdata - xpress
-        dy = event.ydata - ypress
-        #print('x0=%f, xpress=%f, event.xdata=%f, dx=%f, x0+dx=%f' %
-        #      (x0, xpress, event.xdata, dx, x0+dx))
-        self.rect.set_x(x0+dx)
-        self.x.set(x0+dx)
-
-        if self.y:
-            self.rect.set_y(y0+dy)
-            self.y.set(y0+dy)
-        self.rect.figure.canvas.restore_region(self.bg)
-        self.rect.axes.draw_artist(self.rect)
-        self.rect.figure.canvas.blit(self.rect.figure.bbox)
-
-    def on_release(self, event):
-        'on release we reset the press data'
-        self.press = None
-        self.rect.figure.canvas.restore_region(self.bg)
-        self.rect.axes.draw_artist(self.rect)
-        self.rect.figure.canvas.blit(self.rect.figure.bbox)
-
-    def disconnect(self):
-        'disconnect all the stored connection ids'
-        self.rect.figure.canvas.mpl_disconnect(self.cidpress)
-        self.rect.figure.canvas.mpl_disconnect(self.cidrelease)
-        self.rect.figure.canvas.mpl_disconnect(self.cidmotion)
-
-    def reshape_x(self, reshape_x):
-        self.rect.set_width(reshape_x)
-        self.rect.figure.canvas.restore_region(self.bg)
-        self.rect.axes.draw_artist(self.rect)
-        self.rect.figure.canvas.blit(self.rect.figure.bbox)
-
-    def reshape_y(self, reshape_y):
-        self.rect.set_height(reshape_y)
-        self.rect.figure.canvas.restore_region(self.bg)
-        self.rect.axes.draw_artist(self.rect)
-        self.rect.figure.canvas.blit(self.rect.figure.bbox)
 
 if __name__ == '__main__':
     pass

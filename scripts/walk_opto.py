@@ -5,7 +5,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-root_cv = r'C:\Users\aerial triceratops\PycharmProjects\TechMatStrateg\dane\18052021 Awidyna-biotyna 0.1Pa\Po  Aw3\CV, Ferr\opto_ech__2021_05_18_12_14_19'
+root_cv = r'C:\Users\aerial triceratops\PycharmProjects\TechMatStrateg\dane\_samples_\Kasia_2021.02.01'
 wvlgth_path = r'../TMS_app/wavelength.txt'
 
 
@@ -58,7 +58,7 @@ def analysis_full(root, ech_file, opto_file):
     _, lbd_min_array = zip(*min_lbd_dict.items())
     v = [ec_dataset.V[item] for item in ec_items]
     uA = [ec_dataset.uA[item] for item in ec_items]
-    plot_data(lbd_min_array, fit_array, iodm_array)
+    plot_data_v(lbd_min_array, fit_array, iodm_array, v)
     write_csv(root, v, uA, fit_array, list(lbd_min_array), list(iodm_array), iodm_wavelength_start, iodm_wavelength_stop)
 
 
@@ -110,6 +110,25 @@ def plot_data(lbd_min, fit_min, iodm):
 
     plt.savefig(root + '\opto_plot.png', bbox_inches='tight')
 
+def plot_data_v(lbd_min, fit_min, iodm, v):
+    sns.set_theme()
+    print('plotting')
+    figure = plt.figure()
+    min_ax = figure.add_subplot(111)
+    color = 'b'
+    min_ax.plot(v, lbd_min, '.', color=color, label='min')
+    min_ax.plot(v, fit_min, '.', color='g', label='fit')
+    min_ax.set_xlabel('U [V]')
+    min_ax.set_ylabel('λ [nm]', color=color)
+    min_ax.legend()
+
+    color = 'r'
+    iodm_ax = min_ax.twinx()
+    iodm_ax.plot(v, iodm, '.', color=color)
+    iodm_ax.set_ylabel('IODM', color=color)
+
+    plt.savefig(root + '\opto_plot_v.png', bbox_inches='tight')
+
 
 def opto_try(path, fname):
     print('reading csv')
@@ -124,7 +143,7 @@ if __name__=='__main__':
         ech_fname = None
         opto_fname = None
         for name in files:
-            if name.startswith('ech_hello_') and name.endswith('.csv'):
+            if name.startswith('ech_pr_') and name.endswith('.csv'):
                 ech_fname = name
             if name.startswith('opto_') and name.endswith('.csv'):
                 opto_fname = name

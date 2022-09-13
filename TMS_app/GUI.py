@@ -438,8 +438,8 @@ class View:
         self.min_figure.clf()
 
     def model_send_params(self):
-        logging.info("collecting data for plotting")
         param = self.param_option_string.get()
+        logging.info("collecting data for plotting: {}".format(param))
         wvlgth_range = [self.lambda_start.get(), self.lambda_from_slider.get()]
         self._gui_model_q.put((param, wvlgth_range))
 
@@ -533,7 +533,8 @@ class View:
         min_redraw_button = ttk.Button(self.minframe, text="Redraw", command=self.model_send_params)
         self.param_option_string = tkinter.StringVar()
         min_option = ttk.Combobox(self.minframe, textvariable=self.param_option_string)
-        min_option['values'] = ('λ(V)+IODM(V)', 'λ(V)', 'IODM(V)')
+        # min_option['values'] = ('λ(V)+IODM(V)', 'λ(V)', 'IODM(V)')
+        min_option['values'] = ('lbd(V), IODM(V)', 'lbd(V)', 'IODM(V)')
         min_redraw_button.pack(side=tkinter.RIGHT)
         min_option.pack(side=tkinter.LEFT, padx=3)
         min_option.current(0)
