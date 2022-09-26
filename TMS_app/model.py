@@ -201,11 +201,14 @@ class Model(threading.Thread):
         new_ec_dataset.insert_ec_data(filename)
         self.ec_dataset = new_ec_dataset
         self._model_gui_queue.put(("number of cycles"), len(self.ec_dataset.cycles))
-        self._model_gui_queue.put(("draw ec", self.ec_dataset))
-        self._model_gui_queue.put(("send ec ranges", None))
+        # todo: send only first cycle
+        cycle_ec_uA = self.ec_dataset.uA[self.ec_dataset.cycles['Cycle 0']]
+        cycle_ec_V = self.ec_dataset.V[self.ec_dataset.cycles['Cycle 0']]
+        self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V)))
 
     def ec_items_from_range(self, cycle_number):
-        # todo
+        # todo: send ec_data for plotting
+        # self._model_gui_queue.put(("draw ec"))
         pass
 
     @staticmethod
