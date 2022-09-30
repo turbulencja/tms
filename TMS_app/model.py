@@ -77,7 +77,7 @@ class Model(threading.Thread):
                 elif order == "draw opto" and not self.opto_dataset:
                     logging.info("load optical data before drawing")
                 elif order == "draw cycle":
-                    self.ec_items_from_range(data)
+                    self.ec_items_from_cycle(data)
                 elif order == "wavelength range":
                     self.wavelength_range = data
                 elif order == "load opto csv":
@@ -196,20 +196,19 @@ class Model(threading.Thread):
 
     def read_ec_csv(self, filename):
         logging.info("reading file: {}".format(filename))
-        #
         new_ec_dataset = ElectroChemSet()
-        new_ec_dataset.insert_ec_data(filename)
+        new_ec_dataset.insert_ec_data2(filename)
         self.ec_dataset = new_ec_dataset
-        self._model_gui_queue.put(("number of cycles"), len(self.ec_dataset.cycles))
-        # todo: send only first cycle
-        cycle_ec_uA = self.ec_dataset.uA[self.ec_dataset.cycles['Cycle 0']]
-        cycle_ec_V = self.ec_dataset.V[self.ec_dataset.cycles['Cycle 0']]
-        self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V)))
+        self._model_gui_queue.put(("number of cycles", len(self.ec_dataset.cycles)))
+        self.ec_items_from_cycle(0)
 
-    def ec_items_from_range(self, cycle_number):
-        # todo: send ec_data for plotting
-        # self._model_gui_queue.put(("draw ec"))
-        pass
+    def ec_items_from_cycle(self, cycle_number=0):
+        cycle = f'Cycle {cycle_number}'
+        cycle_ec_uA = self.ec_dataset.uA[self.ec_dataset.cycles[cycle][0]:
+                                         self.ec_dataset.cycles[cycle][1]]
+        cycle_ec_V = self.ec_dataset.V[self.ec_dataset.cycles[cycle][0]:
+                                       self.ec_dataset.cycles[cycle][1]]
+        self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V)))
 
     @staticmethod
     def find_nearest_lambda(lambda_nm, wavelength_array):

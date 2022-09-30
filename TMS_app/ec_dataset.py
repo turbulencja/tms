@@ -2,7 +2,6 @@ import logging
 import numpy as np
 
 significant_points = ['Umax', 'Umin', 'Umid1', 'Umid2']
-cycles = ['Cycle 0', 'Cycle 1', 'Cycle 2']
 
 class ElectroChemSet:
     def __init__(self, name=None):
@@ -10,7 +9,7 @@ class ElectroChemSet:
         self.uA = []
         self.V = []
         self.id = []
-        self.cycles = dict.fromkeys(cycles)
+        self.cycles = {}
         self.id_dict = dict.fromkeys(significant_points)
 
     def insert_ec_data(self, filename):
@@ -32,6 +31,44 @@ class ElectroChemSet:
         self.V = V
         self.uA = uA
         self.id = range(len(V))
+
+    def update_cycles_dict(self, tmp_cycle, num, cycles_count):
+        row_number = num - cycles_count
+        prev_key = next(iter(tmp_cycle))
+        start_prev = tmp_cycle[prev_key]
+        self.cycles[prev_key] = [start_prev, row_number - 1]
+
+    def insert_ec_data2(self, filename):
+        data = open(filename)
+        cycles_count = 0
+        tmp_cycle = {}
+        V, uA = [], []
+        for num, row in enumerate(data):
+            try:
+                tmp_v, tmp_ua = row.split(', ')
+                V.append(float(tmp_v))
+                uA.append(float(tmp_ua))
+            except ValueError:
+                if row.startswith('Cycle'):
+                    key = row.split(', ')[0]
+                    row_number = num - cycles_count
+                    if tmp_cycle:
+                        self.update_cycles_dict(tmp_cycle, num, cycles_count)
+                        tmp_cycle = {}
+                    tmp_cycle[key] = row_number
+                    cycles_count = cycles_count + 1
+                else:
+                    print("this doesn't seem like the right type of file")
+                    return
+        if tmp_cycle:
+            self.update_cycles_dict(tmp_cycle, num, cycles_count)
+        else:
+            self.cycles['Cycle 0'] = [0, num]
+
+        self.V = V
+        self.uA = uA
+        self.id = range(len(V))
+        return cycles
 
     def insert_ec_csv(self, ec_data):
         try:

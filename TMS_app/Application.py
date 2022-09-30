@@ -75,9 +75,7 @@ class View(tkinter.Frame):
                     except ValueError:
                         logging.error("cannot draw optical data. is ec file loaded?")
                 elif order == 'number of cycles':
-                    self.cycles = data
-                    # todo!! DuckFrame has to keep info on number of cycles
-                    self.duck_frame.cycle
+                    self.duck_frame.update_no_cycles(data)
                 elif order == 'send ec ranges':
                     logging.info("ec range request")
                     ec_ranges = self.duck_frame.find_ec_range()
@@ -109,17 +107,17 @@ class DuckFrame(tkinter.Frame):
         canvas.get_tk_widget().grid(row=0, column=1, rowspan=3, columnspan=2)
         canvas.draw()
 
-        ec_file_button = ttk.Button(self, text="Browse for ec data", command=self.askopenfile_ec_csv)
-        ec_file_button.grid(row=4, column=1)
+        self.ec_file_button = ttk.Button(self, text="Browse for ec data", command=self.askopenfile_ec_csv)
+        self.ec_file_button.grid(row=4, column=1)
 
-        ec_cycle1_button = CycleButton(self, cycle=0, is_on=False)
-        ec_cycle1_button.grid(row=0, column=0)
-        ec_cycle2_button = CycleButton(self, cycle=1, is_on=False)
-        ec_cycle2_button.state(["disabled"])
-        ec_cycle2_button.grid(row=1, column=0)
-        ec_cycle3_button = CycleButton(self, cycle=2, is_on=False)
-        ec_cycle3_button.state(["disabled"])
-        ec_cycle3_button.grid(row=2, column=0)
+        self.ec_cycle1_button = CycleButton(self, cycle=0)
+        self.ec_cycle1_button.grid(row=0, column=0)
+        self.ec_cycle2_button = CycleButton(self, cycle=1)
+        self.ec_cycle2_button.state(["disabled"])
+        self.ec_cycle2_button.grid(row=1, column=0)
+        self.ec_cycle3_button = CycleButton(self, cycle=2)
+        self.ec_cycle3_button.state(["disabled"])
+        self.ec_cycle3_button.grid(row=2, column=0)
 
     def askopenfile_ec_csv(self):
         filename = filedialog.askopenfilename(initialdir=self.parent.initialdir, title="Select file",
@@ -156,8 +154,26 @@ class DuckFrame(tkinter.Frame):
     def electrochemical_teardown(self):
         self.duck_figure.clf()
 
-    def update_ec_range(self):
-        pass
+    def update_no_cycles(self, num_cycles):
+        if num_cycles == 1:
+            self.ec_cycle1_button.state(["!disabled"])
+            self.ec_cycle2_button.state(["disabled"])
+            self.ec_cycle3_button.state(["disabled"])
+        elif num_cycles == 2:
+            self.ec_cycle1_button.state(["!disabled"])
+            self.ec_cycle2_button.state(["!disabled"])
+            self.ec_cycle3_button.state(["disabled"])
+        elif num_cycles == 3:
+            self.ec_cycle1_button.state(["!disabled"])
+            self.ec_cycle2_button.state(["!disabled"])
+            self.ec_cycle3_button.state(["!disabled"])
+        elif num_cycles > 3:
+            self.ec_cycle1_button.state(["!disabled"])
+            self.ec_cycle2_button.state(["!disabled"])
+            self.ec_cycle3_button.state(["!disabled"])
+            logging.info("more than 3 cycles")
+        else:
+            logging.info(f"unrecognizable cycles number: {num_cycles}")
 
 
 class OptoFrame(tkinter.Frame):
@@ -237,7 +253,7 @@ class ParamFrame(tkinter.Frame):
 
 
 class CycleButton(ttk.Button):
-    def __init__(self, parent, cycle, is_on):
+    def __init__(self, parent, cycle):
         """
         :param parent: DuckFrame obj
         :param cycle: int with cycle number
@@ -245,19 +261,11 @@ class CycleButton(ttk.Button):
         """
         self.parent = parent
         self.cycle = cycle
-        self.is_on = is_on
         button_text = "Cycle {}".format(self.cycle+1)
         ttk.Button.__init__(self, parent, text=button_text, command=self.button_command)
 
     def button_command(self):
-        # todo: this runs on program startup; fix
-        if not self.is_on:
-            self.parent.parent.gui_model_q.put(("draw cycle", self.cycle))
-            self.is_on = True
-        else:
-            # todo : jeśli już narysowany, usuń
-            self.parent.remove_cycle(self.cycle)
-            self.is_on = False
+        self.parent.parent.gui_model_q.put(("draw cycle", self.cycle))
 
 
 class AnalysisFrame(tkinter.Frame):
