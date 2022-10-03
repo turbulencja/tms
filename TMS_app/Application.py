@@ -68,7 +68,7 @@ class View(tkinter.Frame):
                     self.duck_frame.electrochemical_teardown()
                     self.duck_frame.draw_electrochemical()
                 elif order == "draw opto":
-                    self.optical_data = data
+                    self.opto_frame.optical_data = data
                     self.opto_frame.opto_teardown()
                     try:
                         self.opto_frame.draw_optical()
@@ -136,12 +136,6 @@ class DuckFrame(tkinter.Frame):
         duck_ax.set_ylabel('I [uA]')
         self.duck_figure.tight_layout()
         self.duck_figure.canvas.draw()
-        x = min(self.parent.ec_data.V)
-        dx = max(self.parent.ec_data.V)
-        y = min(self.parent.ec_data.uA)
-        dy = max(self.parent.ec_data.uA)
-
-        self.duck_figure.canvas.draw()
 
     def remove_cycle(self, cycle):
         # todo: remove cycle from ec plot
@@ -186,9 +180,6 @@ class OptoFrame(tkinter.Frame):
         canvas.get_tk_widget().grid(row=1, columnspan=2)
         canvas.draw()
 
-        self.opto_slider = ttk.Scale(self, from_=344, to_=1041, length=300)
-        self.opto_slider.grid(row=2, columnspan=2)
-
         optical_file_button = ttk.Button(self,
                                          text="Redraw",
                                          command=self.redraw_opto)
@@ -198,12 +189,28 @@ class OptoFrame(tkinter.Frame):
 
         optical_file_button.grid(row=3, column=0)
         optical_reference_button.grid(row=3, column=1)
+        self.optical_data = None
 
     def redraw_opto(self):
         logging.info("redrawing optical data")
         # ec_range = self.find_ec_range()
         # self.parent.gui_model_q.put(("ec range", ec_range))
         self.parent.gui_model_q.put(("draw opto", None))
+
+    def opto_teardown(self):
+        self.opto_figure.clf()
+
+    def draw_optical(self):
+        logging.info("please wait, drawing optical data")
+        opto_ax = self.opto_figure.add_subplot(111)
+        transmission, wavelength = self.optical_data.generate_data_for_plotting()
+        for meas in transmission:
+            opto_ax.plot(wavelength, transmission[meas])
+        opto_ax.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.1e'))
+        opto_ax.set_xlabel('$\lambda$ [nm]')
+        opto_ax.set_ylabel('T [dB]')
+        self.opto_figure.tight_layout()
+        self.opto_figure.canvas.draw()
 
     def setup(self):
         pass

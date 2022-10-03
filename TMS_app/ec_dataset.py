@@ -68,7 +68,6 @@ class ElectroChemSet:
         self.V = V
         self.uA = uA
         self.id = range(len(V))
-        return cycles
 
     def insert_ec_csv(self, ec_data):
         try:
