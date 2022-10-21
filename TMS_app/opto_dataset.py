@@ -4,6 +4,7 @@ from scipy.signal import general_gaussian
 from collections import OrderedDict
 from scipy.optimize import curve_fit
 
+
 class OptoDatasetB:
     def __init__(self):
         self.name = ""
@@ -82,7 +83,7 @@ class OptoDatasetB:
         return end_wlgth
 
     def calc_fit_range(self):
-        ref = self.transmission[0]
+        ref = self.transmission[min(self.ec_ids)]
         cutoff, _ = self.find_nearest(700)
         fft_ref = self.fft_smooth(ref)
         derivative_fft = np.gradient(fft_ref)
@@ -134,8 +135,8 @@ class OptoDatasetB:
         min_lbd = {}
         for ec_id in transmission:
             cutout = transmission[ec_id][self.fit_range[0]:self.fit_range[1]]
-            coutout_smooth = self.fft_smooth(cutout)
-            min_id = np.where(coutout_smooth == min(coutout_smooth))
+            cutout_smooth = self.fft_smooth(cutout)
+            min_id = np.where(cutout_smooth == min(cutout_smooth))
             idx = self.fit_range[0]+min_id[0][0]
             min_lbd[ec_id] = self.wavelength[idx]
         return min_lbd
@@ -147,6 +148,7 @@ class OptoDatasetB:
 
     def find_nearest(self, value):
         diff = [abs(element - value) for element in self.wavelength]
+        # START HERE
         val_idx = diff.index(min(diff))
         val_real = self.wavelength[val_idx]
         return val_idx, val_real
@@ -178,3 +180,16 @@ class OptoDatasetB:
         fX = np.fft.fft(X)
         Xf = np.real(np.fft.ifft(fX * win))
         return Xf
+
+
+class OptoCycleDataset(OptoDatasetB):
+    def __init__(self):
+        OptoDatasetB.__init__(self)
+        self.cycle = None
+
+    def insert_opto_from_csv(self, data_in, cycle):
+        opto_data = np.array(data_in)
+        self.ec_ids = list(range(cycle[0], cycle[1]))
+        self.transmission = dict(zip(self.ec_ids, opto_data[:, 2:]))
+        self.fit_range = self.calc_fit_range()
+

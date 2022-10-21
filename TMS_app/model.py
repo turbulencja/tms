@@ -4,11 +4,12 @@ import logging
 import sqlite3
 from ec_dataset import ElectroChemSet
 from queue import Empty
-from opto_dataset import OptoDatasetB
+from opto_dataset import OptoDatasetB, OptoCycleDataset
 import numpy as np
 import pandas as pd
 import tms_exceptions as tms_exc
 import os
+from datetime import datetime
 
 
 class Model(threading.Thread):
@@ -17,12 +18,14 @@ class Model(threading.Thread):
         threading.Thread.__init__(self)
         self.daemon = True
         self.filename = None
-        self.opto_dataset = None
+        # self.opto_dataset = None
+        self.opto_cycles = None
         self.ec_dataset = None
+        self.cycles = None
 
         self.ec_items = None
         self.wavelength_range = None
-        self.iodm_range = None # todo!!!
+        self.iodm_range = None  # todo!!!
         self.iodm_window_size = 100  # nm
 
         self._gui_model_queue = kwargs['gui_model_queue']
@@ -82,7 +85,14 @@ class Model(threading.Thread):
                     self.wavelength_range = data
                 elif order == "load opto csv":
                     try:
-                        self.read_opto_csv(data)
+                        # start = datetime.now()
+                        # self.read_opto_cycle_csv_2(data)
+                        # read_1 = datetime.now()
+                        # print(f"reading with genfromtxt: {read_1 - start}")
+                        # start = datetime.now()
+                        self.read_opto_cycle_csv(data)
+                        # read_2 = datetime.now()
+                        # print(f"reading with open file: {read_2 - start}")
                     except UnicodeDecodeError:
                         logging.error("optical file corrupted")
                 elif order == "load ec csv":
@@ -174,24 +184,92 @@ class Model(threading.Thread):
         result_fname = os.path.join(root, filename)
         return result_fname
 
-    def read_opto_csv(self, filename):
-        logging.info("reading file: {}".format(filename))
-        self.filename = self.convert_filename(filename)
-        data = np.genfromtxt(filename, delimiter=',', encoding='utf-8', dtype=int)
-        new_opto_dataset = OptoDatasetB()
-        path = os.getcwd()
+    # def read_opto_dataset_csv(self, filename):
+    #     logging.info("reading file: {}".format(filename))
+    #     self.filename = self.convert_filename(filename)
+    #     data = np.genfromtxt(filename, delimiter=',', encoding='utf-8', dtype=int)
+    #     new_opto_dataset = OptoDatasetB()
+    #     path = os.getcwd()
+    #     try:
+    #         new_opto_dataset.wavelength = np.genfromtxt(path+r'\wavelength.txt', delimiter=',')[2:]
+    #     except OSError:
+    #         logging.error("no wavelength file, generating wavelength vector automatically")
+    #         new_opto_dataset.wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)
+    #     new_opto_dataset.insert_opto_from_csv(data)
+    #     if self.ec_items:
+    #         new_opto_dataset.ec_ids = self.ec_items
+    #     else:
+    #         new_opto_dataset.ec_ids = list(new_opto_dataset.transmission.keys())
+    #     self.opto_dataset = new_opto_dataset
+    #     logging.info("optical file loaded")
+
+    @staticmethod
+    def read_wavelengths():
         try:
-            new_opto_dataset.wavelength = np.genfromtxt(path+r'\wavelength.txt', delimiter=',')[2:]
+            path = os.getcwd()
+            wavelength = np.genfromtxt(path+r'\wavelength.txt', delimiter=',')[2:]
         except OSError:
             logging.error("no wavelength file, generating wavelength vector automatically")
-            new_opto_dataset.wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)
-        new_opto_dataset.insert_opto_from_csv(data)
-        if self.ec_items:
-            new_opto_dataset.ec_ids = self.ec_items
-        else:
-            new_opto_dataset.ec_ids = list(new_opto_dataset.transmission.keys())
-        self.opto_dataset = new_opto_dataset
-        logging.info("optical file loaded, drawing...")
+            wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)
+        return wavelength
+
+    def read_opto_cycle_csv(self, filename):
+        """
+        reading optical file into separate cycles
+        :param filename: path to file
+        :return:
+        """
+        logging.info("reading file: {}".format(filename))
+        self.filename = self.convert_filename(filename)
+        data = open(filename)
+        wavelength = self.read_wavelengths()
+
+        self.opto_cycles = dict.fromkeys(self.cycles.keys())
+        tmp = dict.fromkeys(self.cycles.keys())
+
+        for cycle in self.cycles:
+            tmp[cycle] = []
+
+        for num, row in enumerate(data):
+            for cycle in self.cycles:
+                if self.cycles[cycle][0] <= num <= self.cycles[cycle][1]:
+                    row = row.split(',')
+                    row = [int(x) for x in row]
+                    tmp[cycle].append(row)
+                else:
+                    pass
+        for cycle in tmp:
+            new_cycle = OptoCycleDataset()
+            new_cycle.wavelength = wavelength
+            new_cycle.insert_opto_from_csv(tmp[cycle], self.cycles[cycle])
+            self.opto_cycles[cycle] = new_cycle
+        logging.info("optical file loaded")
+
+    # def read_opto_cycle_csv_2(self, filename):
+    #     """
+    #     reading optical file into separate cycles
+    #     :param filename: path to file
+    #     :return:
+    #     """
+    #     logging.info("reading file: {}".format(filename))
+    #     self.filename = self.convert_filename(filename)
+    #     data = np.genfromtxt(filename, delimiter=',', encoding='utf-8', dtype=int)
+    #     self.opto_cycles = dict.fromkeys(self.ec_dataset.cycles.keys())
+    #     wavelength = self.read_wavelengths()
+    #     for cycle in self.cycles:
+    #         opto_cycle_tmp = OptoCycleDataset()
+    #         opto_cycle_tmp.wavelength = wavelength
+    #         opto_cycle_tmp.insert_opto_from_csv(data[self.cycles[cycle][0]:
+    #                                                  self.cycles[cycle][1]],
+    #                                             self.cycles[cycle])
+    #         self.opto_cycles[cycle] = opto_cycle_tmp
+    #     logging.info("optical file loaded")
+
+
+
+    def draw_opto_cycle(self, cycle=0):
+        logging.info("drawing optical data {} cycle".format(cycle+1))
+
         self._model_gui_queue.put(("draw opto", self.opto_dataset))
 
     def read_ec_csv(self, filename):
@@ -199,15 +277,16 @@ class Model(threading.Thread):
         new_ec_dataset = ElectroChemSet()
         new_ec_dataset.insert_ec_data2(filename)
         self.ec_dataset = new_ec_dataset
+        self.cycles = self.ec_dataset.cycles
         self._model_gui_queue.put(("number of cycles", len(self.ec_dataset.cycles)))
         self.ec_items_from_cycle(0)
 
     def ec_items_from_cycle(self, cycle_number=0):
         cycle = f'Cycle {cycle_number}'
-        cycle_ec_uA = self.ec_dataset.uA[self.ec_dataset.cycles[cycle][0]:
-                                         self.ec_dataset.cycles[cycle][1]]
-        cycle_ec_V = self.ec_dataset.V[self.ec_dataset.cycles[cycle][0]:
-                                       self.ec_dataset.cycles[cycle][1]]
+        cycle_ec_uA = self.ec_dataset.uA[self.cycles[cycle][0]:
+                                         self.cycles[cycle][1]]
+        cycle_ec_V = self.ec_dataset.V[self.cycles[cycle][0]:
+                                       self.cycles[cycle][1]]
         self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V)))
 
     @staticmethod
