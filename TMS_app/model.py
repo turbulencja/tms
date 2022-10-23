@@ -1,15 +1,12 @@
 #!/usr/bin/env python
 import threading
 import logging
-import sqlite3
 from ec_dataset import ElectroChemSet
 from queue import Empty
-from opto_dataset import OptoDatasetB, OptoCycleDataset
+from opto_dataset import OptoCycleDataset
 import numpy as np
-import pandas as pd
-import tms_exceptions as tms_exc
 import os
-from datetime import datetime
+
 
 
 class Model(threading.Thread):
@@ -18,10 +15,10 @@ class Model(threading.Thread):
         threading.Thread.__init__(self)
         self.daemon = True
         self.filename = None
-        # self.opto_dataset = None
         self.opto_cycles = None
         self.ec_dataset = None
         self.cycles = None
+        self.current_cycle = None
 
         self.ec_items = None
         self.wavelength_range = None
@@ -71,28 +68,19 @@ class Model(threading.Thread):
                 elif order == 'lbd(V), IODM(V)':
                     self.wavelength_range = data
                     self.send_iodm_lbd()
-                elif order == "draw ec" and self.ec_dataset:
-                    # todo fix
-                    self.send_ec_data()
-                elif order == "draw opto" and self.opto_dataset:
-                    self.opto_dataset.ec_ids = self.ec_items
-                    self._model_gui_queue.put(("draw opto", self.opto_dataset))
+                elif order == "draw opto cycle":
+                    self.draw_opto_cycle()
                 elif order == "draw opto" and not self.opto_dataset:
                     logging.info("load optical data before drawing")
-                elif order == "draw cycle":
+                elif order == "draw ec cycle":
+                    self.current_cycle = "Cycle {}".format(data)
                     self.ec_items_from_cycle(data)
                 elif order == "wavelength range":
                     self.wavelength_range = data
                 elif order == "load opto csv":
                     try:
-                        # start = datetime.now()
-                        # self.read_opto_cycle_csv_2(data)
-                        # read_1 = datetime.now()
-                        # print(f"reading with genfromtxt: {read_1 - start}")
-                        # start = datetime.now()
                         self.read_opto_cycle_csv(data)
-                        # read_2 = datetime.now()
-                        # print(f"reading with open file: {read_2 - start}")
+                        self._model_gui_queue.put(("opto file loaded", 0))
                     except UnicodeDecodeError:
                         logging.error("optical file corrupted")
                 elif order == "load ec csv":
@@ -184,25 +172,6 @@ class Model(threading.Thread):
         result_fname = os.path.join(root, filename)
         return result_fname
 
-    # def read_opto_dataset_csv(self, filename):
-    #     logging.info("reading file: {}".format(filename))
-    #     self.filename = self.convert_filename(filename)
-    #     data = np.genfromtxt(filename, delimiter=',', encoding='utf-8', dtype=int)
-    #     new_opto_dataset = OptoDatasetB()
-    #     path = os.getcwd()
-    #     try:
-    #         new_opto_dataset.wavelength = np.genfromtxt(path+r'\wavelength.txt', delimiter=',')[2:]
-    #     except OSError:
-    #         logging.error("no wavelength file, generating wavelength vector automatically")
-    #         new_opto_dataset.wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)
-    #     new_opto_dataset.insert_opto_from_csv(data)
-    #     if self.ec_items:
-    #         new_opto_dataset.ec_ids = self.ec_items
-    #     else:
-    #         new_opto_dataset.ec_ids = list(new_opto_dataset.transmission.keys())
-    #     self.opto_dataset = new_opto_dataset
-    #     logging.info("optical file loaded")
-
     @staticmethod
     def read_wavelengths():
         try:
@@ -210,6 +179,7 @@ class Model(threading.Thread):
             wavelength = np.genfromtxt(path+r'\wavelength.txt', delimiter=',')[2:]
         except OSError:
             logging.error("no wavelength file, generating wavelength vector automatically")
+            # todo data[0]
             wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)
         return wavelength
 
@@ -245,32 +215,10 @@ class Model(threading.Thread):
             self.opto_cycles[cycle] = new_cycle
         logging.info("optical file loaded")
 
-    # def read_opto_cycle_csv_2(self, filename):
-    #     """
-    #     reading optical file into separate cycles
-    #     :param filename: path to file
-    #     :return:
-    #     """
-    #     logging.info("reading file: {}".format(filename))
-    #     self.filename = self.convert_filename(filename)
-    #     data = np.genfromtxt(filename, delimiter=',', encoding='utf-8', dtype=int)
-    #     self.opto_cycles = dict.fromkeys(self.ec_dataset.cycles.keys())
-    #     wavelength = self.read_wavelengths()
-    #     for cycle in self.cycles:
-    #         opto_cycle_tmp = OptoCycleDataset()
-    #         opto_cycle_tmp.wavelength = wavelength
-    #         opto_cycle_tmp.insert_opto_from_csv(data[self.cycles[cycle][0]:
-    #                                                  self.cycles[cycle][1]],
-    #                                             self.cycles[cycle])
-    #         self.opto_cycles[cycle] = opto_cycle_tmp
-    #     logging.info("optical file loaded")
-
-
-
-    def draw_opto_cycle(self, cycle=0):
-        logging.info("drawing optical data {} cycle".format(cycle+1))
-
-        self._model_gui_queue.put(("draw opto", self.opto_dataset))
+    def draw_opto_cycle(self):
+        logging.info("drawing optical data for {}".format(self.current_cycle))
+        opto_cycle = self.opto_cycles[self.current_cycle]
+        self._model_gui_queue.put(("draw opto", opto_cycle))
 
     def read_ec_csv(self, filename):
         logging.info("reading file: {}".format(filename))
@@ -280,6 +228,7 @@ class Model(threading.Thread):
         self.cycles = self.ec_dataset.cycles
         self._model_gui_queue.put(("number of cycles", len(self.ec_dataset.cycles)))
         self.ec_items_from_cycle(0)
+        self.current_cycle = "Cycle 0"
 
     def ec_items_from_cycle(self, cycle_number=0):
         cycle = f'Cycle {cycle_number}'

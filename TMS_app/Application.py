@@ -61,12 +61,13 @@ class View(tkinter.Frame):
                 logging.info("order misshap: {}".format(record))
             else:
                 if order == "draw ec":
-                    # todo: tuple (uA, V) comes in
                     self.ec_data = ElectroChemSet()
                     self.ec_data.uA = data[0]
                     self.ec_data.V = data[1]
                     self.duck_frame.electrochemical_teardown()
                     self.duck_frame.draw_electrochemical()
+                elif order == "opto file loaded":
+                    self.gui_model_q.put(("draw opto cycle", None))
                 elif order == "draw opto":
                     self.opto_frame.optical_data = data
                     self.opto_frame.opto_teardown()
@@ -103,6 +104,7 @@ class DuckFrame(tkinter.Frame):
         self.duck_figure = Figure(figsize=(5, 3))
         self.duck_figure.patch.set_facecolor('#f0f0f0')
         self.cycles = 1     # number of cycles
+        self.current_cycle = 0
         canvas = FigureCanvasTkAgg(self.duck_figure, master=self)
         canvas.get_tk_widget().grid(row=0, column=1, rowspan=3, columnspan=2)
         canvas.draw()
@@ -137,13 +139,10 @@ class DuckFrame(tkinter.Frame):
         self.duck_figure.tight_layout()
         self.duck_figure.canvas.draw()
 
-    def remove_cycle(self, cycle):
-        # todo: remove cycle from ec plot
-        pass
-
-    def find_ec_range(self, cycle=1):
+    def find_ec_range(self, cycle=0):
         logging.info(f"plotting cycle {cycle+1}")
-        self.parent.gui_model_q.put(("draw cycle", cycle))
+        self.current_cycle = cycle
+        self.parent.gui_model_q.put(("draw ec cycle", cycle))
 
     def electrochemical_teardown(self):
         self.duck_figure.clf()
@@ -195,7 +194,7 @@ class OptoFrame(tkinter.Frame):
         logging.info("redrawing optical data")
         # ec_range = self.find_ec_range()
         # self.parent.gui_model_q.put(("ec range", ec_range))
-        self.parent.gui_model_q.put(("draw opto", None))
+        self.parent.gui_model_q.put(("draw opto cycle", None))
 
     def opto_teardown(self):
         self.opto_figure.clf()
@@ -272,7 +271,7 @@ class CycleButton(ttk.Button):
         ttk.Button.__init__(self, parent, text=button_text, command=self.button_command)
 
     def button_command(self):
-        self.parent.parent.gui_model_q.put(("draw cycle", self.cycle))
+        self.parent.parent.gui_model_q.put(("draw ec cycle", self.cycle))
 
 
 class AnalysisFrame(tkinter.Frame):
