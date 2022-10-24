@@ -78,11 +78,14 @@ class Model(threading.Thread):
                 elif order == "wavelength range":
                     self.wavelength_range = data
                 elif order == "load opto csv":
-                    try:
-                        self.read_opto_cycle_csv(data)
-                        self._model_gui_queue.put(("opto file loaded", 0))
-                    except UnicodeDecodeError:
-                        logging.error("optical file corrupted")
+                    if self.ec_dataset:
+                        try:
+                            self.read_opto_cycle_csv(data)
+                            self._model_gui_queue.put(("opto file loaded", 0))
+                        except UnicodeDecodeError:
+                            logging.error("optical file corrupted")
+                    else:
+                        logging.info("ec file not loaded")
                 elif order == "load ec csv":
                     self.read_ec_csv(data)
                 else:
@@ -217,8 +220,11 @@ class Model(threading.Thread):
 
     def draw_opto_cycle(self):
         logging.info("drawing optical data for {}".format(self.current_cycle))
-        opto_cycle = self.opto_cycles[self.current_cycle]
-        self._model_gui_queue.put(("draw opto", opto_cycle))
+        if self.opto_cycles:
+            opto_cycle = self.opto_cycles[self.current_cycle]
+            self._model_gui_queue.put(("draw opto", opto_cycle))
+        else:
+            logging.info("optical file not loaded")
 
     def read_ec_csv(self, filename):
         logging.info("reading file: {}".format(filename))
@@ -232,11 +238,14 @@ class Model(threading.Thread):
 
     def ec_items_from_cycle(self, cycle_number=0):
         cycle = f'Cycle {cycle_number}'
-        cycle_ec_uA = self.ec_dataset.uA[self.cycles[cycle][0]:
-                                         self.cycles[cycle][1]]
-        cycle_ec_V = self.ec_dataset.V[self.cycles[cycle][0]:
-                                       self.cycles[cycle][1]]
-        self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V)))
+        if self.ec_dataset:
+            cycle_ec_uA = self.ec_dataset.uA[self.cycles[cycle][0]:
+                                             self.cycles[cycle][1]]
+            cycle_ec_V = self.ec_dataset.V[self.cycles[cycle][0]:
+                                           self.cycles[cycle][1]]
+            self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V)))
+        else:
+            logging.info("ec file not loaded")
 
     @staticmethod
     def find_nearest_lambda(lambda_nm, wavelength_array):
