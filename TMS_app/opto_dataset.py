@@ -3,6 +3,7 @@ import numpy as np
 from scipy.signal import general_gaussian
 from collections import OrderedDict
 from scipy.optimize import curve_fit
+import logging
 
 
 class OptoDatasetB:
@@ -168,8 +169,12 @@ class OptoDatasetB:
         # 1. znalezc miejsca gdzie grad przechodzi przez 0
         zero_crossings = np.where(np.diff(np.sign(deriv_arr)))[0]
         # 2. znalezc miejsce maksymalnej wartosci dla punktów z #1
-        max_p = arr[zero_crossings].max()
-        idx_max_p = np.where(arr == max_p)
+        try:
+            max_p = arr[zero_crossings].max()
+            idx_max_p = np.where(arr == max_p)
+        except ValueError:
+            # only for placeholder OptoCycleDataset
+            idx_max_p = [np.array([0])]
         return idx_max_p
 
     @staticmethod
@@ -191,5 +196,7 @@ class OptoCycleDataset(OptoDatasetB):
         opto_data = np.array(data_in)
         self.ec_ids = list(range(cycle[0], cycle[1]))
         self.transmission = dict(zip(self.ec_ids, opto_data[:, 2:]))
+        # todo: [0]
         self.fit_range = self.calc_fit_range()
+
 

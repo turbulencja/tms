@@ -74,7 +74,7 @@ class View(tkinter.Frame):
                     try:
                         self.opto_frame.draw_optical()
                     except ValueError:
-                        logging.error("cannot draw optical data. is ec file loaded?")
+                        logging.error("cannot draw optical data. ec file not loaded or opto file missing cycle")
                 elif order == 'number of cycles':
                     self.duck_frame.update_no_cycles(data)
                 elif order == 'send ec ranges':

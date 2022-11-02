@@ -212,11 +212,23 @@ class Model(threading.Thread):
                 else:
                     pass
         for cycle in tmp:
-            new_cycle = OptoCycleDataset()
-            new_cycle.wavelength = wavelength
-            new_cycle.insert_opto_from_csv(tmp[cycle], self.cycles[cycle])
-            self.opto_cycles[cycle] = new_cycle
+            if tmp[cycle]:
+                new_cycle = OptoCycleDataset()
+                new_cycle.wavelength = wavelength
+                new_cycle.insert_opto_from_csv(tmp[cycle], self.cycles[cycle])
+                self.opto_cycles[cycle] = new_cycle
+            else:
+                self.opto_cycles[cycle] = self.insert_placeholder_cycle(self.cycles[cycle])
+
         logging.info("optical file loaded")
+
+    @staticmethod
+    def insert_placeholder_cycle(cycles):
+        new_cycle = OptoCycleDataset()
+        new_cycle.wavelength = [600, 700, 800, 900]
+        input = [[0.1, -0.1, -0.1, 0.1]] * len(cycles)
+        new_cycle.insert_opto_from_csv(input, cycles)
+        return new_cycle
 
     def draw_opto_cycle(self):
         logging.info("drawing optical data for {}".format(self.current_cycle))
