@@ -81,6 +81,10 @@ class View(tkinter.Frame):
                     logging.info("ec range request")
                     ec_ranges = self.duck_frame.find_ec_range()
                     self.gui_model_q.put(("ec range", ec_ranges))
+                elif order == 'λ(V)':
+                    # todo: info on cycle number in logging
+                    logging.info("plotting lbd(V)")
+                    self.analysis_frame.parameter_plotting(data[0], data[1])
                 else:
                     logging.info("unrecognized order from model: {}".format(record))
         self.after(400, self.poll_data_queue)
@@ -207,7 +211,7 @@ class OptoFrame(tkinter.Frame):
             opto_ax.plot(wavelength, transmission[meas])
         opto_ax.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.1e'))
         opto_ax.set_xlabel('$\lambda$ [nm]')
-        opto_ax.set_ylabel('T [dB]')
+        opto_ax.set_ylabel('intensity [counts]')
         self.opto_figure.tight_layout()
         self.opto_figure.canvas.draw()
 
@@ -297,7 +301,7 @@ class AnalysisFrame(tkinter.Frame):
         logging.info("collecting data for plotting")
         param = self.param_option_string.get()
         # wvlgth_range = [self.lambda_start.get(), self.lambda_from_slider.get()]
-        # self.parent.gui_model_q.put((param, wvlgth_range))
+        self.parent.gui_model_q.put((param, 0))
 
     def parameter_teardown(self):
         self.anls_figure.clf()
@@ -322,6 +326,7 @@ class AnalysisFrame(tkinter.Frame):
         self.parameter_teardown()
         min_ax = self.anls_figure.add_subplot(111)
         min_ax.plot(x, y, '.')
+        # todo: param should be taken from model order
         param = self.param_option_string.get()
         if param == 'λ(V)':
             min_ax.set_xlabel('U [V]')

@@ -39,34 +39,13 @@ class Model(threading.Thread):
                 pass
             else:
                 if order == 'λ(V)':
-                    self.wavelength_range = data
                     try:
                         self.send_lbd_v()
-                    except KeyError:
-                        logging.error("optical file out of scope")
-                elif order == 'lbd(V)':
-                    self.wavelength_range = data
-                    try:
-                        self.send_lbd_v()
-                    except KeyError:
-                        logging.error("optical file out of scope")
-                elif order == 'λ(meas)':
-                    self.wavelength_range = data
-                    try:
-                        self.send_lbd_meas()
                     except KeyError:
                         logging.error("optical file out of scope")
                 elif order == "IODM(V)":
-                    self.wavelength_range = data
                     self.send_iodm_v()
-                elif order == "IODM(meas)":
-                    self.wavelength_range = data
-                    self.send_iodm_meas()
                 elif order == 'λ(V)+IODM(V)':
-                    self.wavelength_range = data
-                    self.send_iodm_lbd()
-                elif order == 'lbd(V), IODM(V)':
-                    self.wavelength_range = data
                     self.send_iodm_lbd()
                 elif order == "draw opto cycle":
                     self.draw_opto_cycle()
@@ -149,25 +128,21 @@ class Model(threading.Thread):
         header = 'U[V],I[A],lbd[nm],IODM,IODM range 1[nm], IODM range 2[nm]'
         np.savetxt(self.filename, data_vertical, delimiter=',', header=header)
 
-    # def send_lbd_meas(self):
-        # ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
-        # wavelength_range_ids = self.calc_wavelength_range_ids()
-        # min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
-        # self._model_gui_queue.put(("λ(meas)", min_lbd_dict))
-
-    def calc_wavelength_range_ids(self):
-        wvlgth_start = self.find_nearest_lambda(self.wavelength_range[0], self.opto_dataset.wavelength)
-        wvlgth_stop = self.find_nearest_lambda(self.wavelength_range[0] + self.wavelength_range[1],
-                                               self.opto_dataset.wavelength)
-        wavelength_range_ids = [wvlgth_start, wvlgth_stop]
-        return wavelength_range_ids
+    # def calc_wavelength_range_ids(self):
+    #     wvlgth_start = self.find_nearest_lambda(self.wavelength_range[0], self.opto_dataset.wavelength)
+    #     wvlgth_stop = self.find_nearest_lambda(self.wavelength_range[0] + self.wavelength_range[1],
+    #                                            self.opto_dataset.wavelength)
+    #     wavelength_range_ids = [wvlgth_start, wvlgth_stop]
+    #     return wavelength_range_ids
 
     def send_lbd_v(self):
-        ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
-        wavelength_range_ids = self.calc_wavelength_range_ids()
-        min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
-        v = [self.ec_dataset.V[item] for item in self.ec_items]
-        self._model_gui_queue.put(("λ(V)", (v, min_lbd_dict)))
+        cycle = self.opto_cycles[self.current_cycle]
+        fit_lbd_dict = cycle.calc_auto_fit()
+        cycle_ec_V = self.ec_dataset.V[self.cycles[self.current_cycle][0]:
+                                       self.cycles[self.current_cycle][1]]
+        # todo: from dict to array
+        # todo: also check if len(cycle_ec_V) matches len(fit_lbd_dict)
+        self._model_gui_queue.put(("λ(V)", (cycle_ec_V, fit_lbd_dict.values())))
 
     def convert_filename(self, filename):
         root = os.path.dirname(os.path.abspath(filename))
@@ -176,14 +151,13 @@ class Model(threading.Thread):
         return result_fname
 
     @staticmethod
-    def read_wavelengths():
+    def read_wavelengths(length):
         try:
             path = os.getcwd()
             wavelength = np.genfromtxt(path+r'\wavelength.txt', delimiter=',')[2:]
         except OSError:
             logging.error("no wavelength file, generating wavelength vector automatically")
-            # todo data[0]
-            wavelength = np.linspace(344.6122, 1041.1877, num=len(data[0])-2)
+            wavelength = np.linspace(344.6122, 1041.1877, num=length)
         return wavelength
 
     def read_opto_cycle_csv(self, filename):
@@ -195,7 +169,6 @@ class Model(threading.Thread):
         logging.info("reading file: {}".format(filename))
         self.filename = self.convert_filename(filename)
         data = open(filename)
-        wavelength = self.read_wavelengths()
 
         self.opto_cycles = dict.fromkeys(self.cycles.keys())
         tmp = dict.fromkeys(self.cycles.keys())
@@ -211,22 +184,28 @@ class Model(threading.Thread):
                     tmp[cycle].append(row)
                 else:
                     pass
+
         for cycle in tmp:
             if tmp[cycle]:
+                tmp_array = np.array(tmp[cycle])[:, 2:]
+                _, length = tmp_array.shape
+                wavelength = self.read_wavelengths(length)
                 new_cycle = OptoCycleDataset()
                 new_cycle.wavelength = wavelength
-                new_cycle.insert_opto_from_csv(tmp[cycle], self.cycles[cycle])
+                new_cycle.insert_opto_from_csv(tmp_array, self.cycles[cycle])
                 self.opto_cycles[cycle] = new_cycle
             else:
-                self.opto_cycles[cycle] = self.insert_placeholder_cycle(self.cycles[cycle])
+                logging.warning(f"missing {cycle}; generating empty cycle")
+                self.opto_cycles[cycle] = self.insert_empty_cycle(self.cycles[cycle])
 
         logging.info("optical file loaded")
 
     @staticmethod
-    def insert_placeholder_cycle(cycles):
+    def insert_empty_cycle(cycles):
         new_cycle = OptoCycleDataset()
         new_cycle.wavelength = [600, 700, 800, 900]
         input = [[0.1, -0.1, -0.1, 0.1]] * len(cycles)
+        input = np.array(input)
         new_cycle.insert_opto_from_csv(input, cycles)
         return new_cycle
 

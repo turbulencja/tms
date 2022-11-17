@@ -173,7 +173,7 @@ class OptoDatasetB:
             max_p = arr[zero_crossings].max()
             idx_max_p = np.where(arr == max_p)
         except ValueError:
-            # only for placeholder OptoCycleDataset
+            # only for empty OptoCycleDataset
             idx_max_p = [np.array([0])]
         return idx_max_p
 
@@ -193,10 +193,8 @@ class OptoCycleDataset(OptoDatasetB):
         self.cycle = None
 
     def insert_opto_from_csv(self, data_in, cycle):
-        opto_data = np.array(data_in)
         self.ec_ids = list(range(cycle[0], cycle[1]))
-        self.transmission = dict(zip(self.ec_ids, opto_data[:, 2:]))
-        # todo: [0]
+        self.transmission = dict(zip(self.ec_ids, data_in))
         self.fit_range = self.calc_fit_range()
 
 
