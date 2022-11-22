@@ -64,30 +64,31 @@ class View(tkinter.Frame):
                     self.ec_data = ElectroChemSet()
                     self.ec_data.uA = data[0]
                     self.ec_data.V = data[1]
+                    cycle = self.cycle_number_increment(data[2])
                     self.duck_frame.electrochemical_teardown()
-                    self.duck_frame.draw_electrochemical()
+                    self.duck_frame.draw_electrochemical(cycle)
                 elif order == "opto file loaded":
                     self.gui_model_q.put(("draw opto cycle", None))
                 elif order == "draw opto":
-                    self.opto_frame.optical_data = data
+                    self.opto_frame.optical_data = data[0]
+                    cycle = self.cycle_number_increment(data[1])
                     self.opto_frame.opto_teardown()
                     try:
-                        self.opto_frame.draw_optical()
+                        self.opto_frame.draw_optical(cycle)
                     except ValueError:
                         logging.error("cannot draw optical data. ec file not loaded or opto file missing cycle")
                 elif order == 'number of cycles':
                     self.duck_frame.update_no_cycles(data)
-                elif order == 'send ec ranges':
-                    logging.info("ec range request")
-                    ec_ranges = self.duck_frame.find_ec_range()
-                    self.gui_model_q.put(("ec range", ec_ranges))
-                elif order == 'λ(V)':
-                    # todo: info on cycle number in logging
-                    logging.info("plotting lbd(V)")
-                    self.analysis_frame.parameter_plotting(data[0], data[1])
+                elif order == 'fit λ(V)':
+                    cycle = self.cycle_number_increment(data[2])
+                    self.analysis_frame.parameter_plotting(order, data[0], data[1], cycle)
                 else:
                     logging.info("unrecognized order from model: {}".format(record))
         self.after(400, self.poll_data_queue)
+
+    @staticmethod
+    def cycle_number_increment(cycle):
+        return cycle[:-1] + str(int(cycle[-1]) + 1)
 
     def setup_frames(self):
         self.duck_frame = DuckFrame(self, borderwidth=1)
@@ -134,12 +135,13 @@ class DuckFrame(tkinter.Frame):
             self.parent.gui_model_q.put(("load ec csv", filename))
             self.parent.initialdir = os.path.dirname(filename)
 
-    def draw_electrochemical(self):
+    def draw_electrochemical(self, cycle):
         logging.info("please wait, drawing electrochemical data")
         duck_ax = self.duck_figure.add_subplot(111)
         duck_ax.plot(self.parent.ec_data.V, self.parent.ec_data.uA)
         duck_ax.set_xlabel('U [V]')
         duck_ax.set_ylabel('I [uA]')
+        duck_ax.set_title(cycle)
         self.duck_figure.tight_layout()
         self.duck_figure.canvas.draw()
 
@@ -203,7 +205,7 @@ class OptoFrame(tkinter.Frame):
     def opto_teardown(self):
         self.opto_figure.clf()
 
-    def draw_optical(self):
+    def draw_optical(self, cycle):
         logging.info("please wait, drawing optical data")
         opto_ax = self.opto_figure.add_subplot(111)
         transmission, wavelength = self.optical_data.generate_data_for_plotting()
@@ -212,6 +214,7 @@ class OptoFrame(tkinter.Frame):
         opto_ax.yaxis.set_major_formatter(mtick.FormatStrFormatter('%.1e'))
         opto_ax.set_xlabel('$\lambda$ [nm]')
         opto_ax.set_ylabel('intensity [counts]')
+        opto_ax.set_title(cycle)
         self.opto_figure.tight_layout()
         self.opto_figure.canvas.draw()
 
@@ -292,7 +295,7 @@ class AnalysisFrame(tkinter.Frame):
         anls_redraw_button = ttk.Button(self, text="Redraw", command=self.model_send_params)
         self.param_option_string = tkinter.StringVar()
         anls_option = ttk.Combobox(self, textvariable=self.param_option_string)
-        anls_option['values'] = ('λ(V)+IODM(V)', 'λ(V)', 'IODM(V)')
+        anls_option['values'] = ('λ(V)+IODM(V)', 'fit λ(V)', 'IODM(V)')
         anls_redraw_button.grid()
         anls_option.grid()
         anls_option.current(0)
@@ -322,13 +325,12 @@ class AnalysisFrame(tkinter.Frame):
         self.anls_figure.tight_layout()
         self.anls_figure.canvas.draw()
 
-    def parameter_plotting(self, x, y):
+    def parameter_plotting(self, param, x, y, cycle):
         self.parameter_teardown()
         min_ax = self.anls_figure.add_subplot(111)
         min_ax.plot(x, y, '.')
-        # todo: param should be taken from model order
-        param = self.param_option_string.get()
-        if param == 'λ(V)':
+        min_ax.set_title(cycle)
+        if param == 'fit λ(V)':
             min_ax.set_xlabel('U [V]')
             min_ax.set_ylabel('λ [nm]')
         elif param == 'λ(meas)':

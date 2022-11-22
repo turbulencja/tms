@@ -38,7 +38,7 @@ class Model(threading.Thread):
             except Empty:
                 pass
             else:
-                if order == 'λ(V)':
+                if order == 'fit λ(V)':
                     try:
                         self.send_lbd_v()
                     except KeyError:
@@ -138,15 +138,18 @@ class Model(threading.Thread):
     def send_lbd_v(self):
         cycle = self.opto_cycles[self.current_cycle]
         fit_lbd_dict = cycle.calc_auto_fit()
+        fit_lbd = fit_lbd_dict.values()
         cycle_ec_V = self.ec_dataset.V[self.cycles[self.current_cycle][0]:
                                        self.cycles[self.current_cycle][1]]
-        # todo: from dict to array
-        # todo: also check if len(cycle_ec_V) matches len(fit_lbd_dict)
-        self._model_gui_queue.put(("λ(V)", (cycle_ec_V, fit_lbd_dict.values())))
+        if len(cycle_ec_V) == len(fit_lbd):
+            logging.info(f"plotting lbd(V) for {self.current_cycle}")
+            self._model_gui_queue.put(("fit λ(V)", (cycle_ec_V, fit_lbd, self.current_cycle)))
+        else:
+            logging.warning("number of ec and optical measurements don't match")
 
     def convert_filename(self, filename):
         root = os.path.dirname(os.path.abspath(filename))
-        prefix, filename = os.path.basename(filename).split('_',1)
+        prefix, filename = os.path.basename(filename).split('_', 1)
         result_fname = os.path.join(root, filename)
         return result_fname
 
@@ -213,7 +216,7 @@ class Model(threading.Thread):
         logging.info("drawing optical data for {}".format(self.current_cycle))
         if self.opto_cycles:
             opto_cycle = self.opto_cycles[self.current_cycle]
-            self._model_gui_queue.put(("draw opto", opto_cycle))
+            self._model_gui_queue.put(("draw opto", (opto_cycle, self.current_cycle)))
         else:
             logging.info("optical file not loaded")
 
@@ -234,7 +237,7 @@ class Model(threading.Thread):
                                              self.cycles[cycle][1]]
             cycle_ec_V = self.ec_dataset.V[self.cycles[cycle][0]:
                                            self.cycles[cycle][1]]
-            self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V)))
+            self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V, cycle)))
         else:
             logging.info("ec file not loaded")
 
