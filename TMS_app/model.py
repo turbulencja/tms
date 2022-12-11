@@ -8,7 +8,6 @@ import numpy as np
 import os
 
 
-
 class Model(threading.Thread):
 
     def __init__(self, **kwargs):
@@ -20,9 +19,8 @@ class Model(threading.Thread):
         self.cycles = None
         self.current_cycle = None
 
-        self.ec_items = None
         self.wavelength_range = None
-        self.iodm_range = None  # todo!!!
+        self.iodm_range = None  # nm
         self.iodm_window_size = 100  # nm
 
         self._gui_model_queue = kwargs['gui_model_queue']
@@ -45,26 +43,25 @@ class Model(threading.Thread):
                         logging.error("optical file out of scope")
                 elif order == "IODM(V)":
                     self.send_iodm_v()
-                elif order == 'λ(V)+IODM(V)':
+                elif order == 'fit λ(V)+IODM(V)':
                     self.send_iodm_lbd()
                 elif order == "draw opto cycle":
                     self.draw_opto_cycle()
-                elif order == "draw opto" and not self.opto_dataset:
-                    logging.info("load optical data before drawing")
                 elif order == "draw ec cycle":
                     self.current_cycle = "Cycle {}".format(data)
                     self.ec_items_from_cycle(data)
                 elif order == "wavelength range":
                     self.wavelength_range = data
                 elif order == "load opto csv":
-                    if self.ec_dataset:
-                        try:
-                            self.read_opto_cycle_csv(data)
-                            self._model_gui_queue.put(("opto file loaded", 0))
-                        except UnicodeDecodeError:
-                            logging.error("optical file corrupted")
-                    else:
+                    if not self.ec_dataset:
                         logging.info("ec file not loaded")
+                        return
+                    try:
+                        success = self.read_opto_cycle_csv(data)
+                    except (UnicodeDecodeError, ValueError) as e:
+                        logging.error("optical file corrupted")
+                    if success:
+                        self._model_gui_queue.put(("opto file loaded", 0))
                 elif order == "load ec csv":
                     self.read_ec_csv(data)
                 else:
@@ -76,64 +73,48 @@ class Model(threading.Thread):
         self._model_gui_queue.put(("IODM(meas)", iodm))
 
     def send_iodm_v(self):
-        # wavelength_range_ids = self.calc_wavelength_range_ids()  # not used for automatic_IODM
-        iodm_dict, wavelength_start = self.opto_dataset.automatic_IODM(self.ec_items, self.iodm_window_size)
+        cycle = self.opto_cycles[self.current_cycle]
+        cycle_ec_V = self.ec_dataset.V[self.cycles[self.current_cycle][0]:
+                                       self.cycles[self.current_cycle][1]]
+        if self.iodm_range is None:
+            iodm_dict, wavelength_start, wavelength_stop = cycle.automatic_IODM(cycle.transmission.keys(),
+                                                                                self.iodm_window_size)
+            self.iodm_range = [wavelength_start, wavelength_stop]
+        else:
+            iodm_dict = cycle.send_IODM(cycle.transmission.keys(), self.iodm_range)
         _, iodm = zip(*iodm_dict.items())
-        v = [self.ec_dataset.V[item] for item in self.ec_items]
-        self._model_gui_queue.put(("IODM(V)", (v, iodm)))
+        self._model_gui_queue.put(("IODM(V)", (cycle_ec_V, iodm, self.current_cycle)))
 
     def send_iodm_lbd(self):
-        wavelength_range_ids = self.calc_wavelength_range_ids()
-        fit_lbd_dict = self.opto_dataset.calc_auto_fit()
+        cycle = self.opto_cycles[self.current_cycle]
+        fit_lbd_dict = cycle.calc_auto_fit()
         if self.iodm_range is None:
-            iodm_dict, iodm_wavelength_start, iodm_wavelength_stop = self.opto_dataset.automatic_IODM(self.ec_items, self.iodm_window_size)
+            iodm_dict, iodm_wavelength_start, iodm_wavelength_stop = cycle.automatic_IODM(cycle.transmission.keys(),
+                                                                                          self.iodm_window_size)
             self.iodm_range = [iodm_wavelength_start, iodm_wavelength_stop]
         else:
-            iodm_dict = self.opto_dataset.send_IODM(self.ec_items, self.iodm_range)
-            iodm_wavelength_start = self.iodm_range[0]
-            iodm_wavelength_stop = self.iodm_range[1]
+            iodm_dict = cycle.send_IODM(cycle.transmission.keys(), self.iodm_range)
         _, iodm = zip(*iodm_dict.items())
-        v = [self.ec_dataset.V[item] for item in self.ec_items]
-        #
-        # ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
-        # min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
-        self._model_gui_queue.put(('λ(V)+IODM(V)', (v, iodm, fit_lbd_dict)))
-        self.write_csv(v, iodm, fit_lbd_dict, iodm_wavelength_start, iodm_wavelength_stop)
-
-    def send_iodm_lbd_old(self):
-        wavelength_range_ids = self.calc_wavelength_range_ids()
-        if self.iodm_range is None:
-            iodm_dict, iodm_wavelength_start, iodm_wavelength_stop = self.opto_dataset.automatic_IODM(self.ec_items, self.iodm_window_size)
-            self.iodm_range = [iodm_wavelength_start, iodm_wavelength_stop]
+        _, fit_lbd = zip(*fit_lbd_dict.items())
+        cycle_ec_V = self.ec_dataset.V[self.cycles[self.current_cycle][0]:
+                                       self.cycles[self.current_cycle][1]]
+        if len(cycle_ec_V) == len(iodm) == len(fit_lbd):
+            self._model_gui_queue.put(('fit λ(V)+IODM(V)', (cycle_ec_V, iodm, fit_lbd, self.current_cycle)))
+            self.write_csv(cycle_ec_V, iodm, fit_lbd_dict)
         else:
-            iodm_dict = self.opto_dataset.send_IODM(self.ec_items, self.iodm_range)
-            iodm_wavelength_start = self.iodm_range[0]
-            iodm_wavelength_stop = self.iodm_range[1]
-        _, iodm = zip(*iodm_dict.items())
-        v = [self.ec_dataset.V[item] for item in self.ec_items]
-        #
-        ec_ids_transmission = {k: self.opto_dataset.transmission[k] for k in self.ec_items}
-        min_lbd_dict = self.opto_dataset.calc_min(ec_ids_transmission, wavelength_range_ids)
-        self._model_gui_queue.put(('λ(V)+IODM(V)', (v, iodm, min_lbd_dict)))
-        self.write_csv(v, iodm, min_lbd_dict, iodm_wavelength_start, iodm_wavelength_stop)
+            logging.error("lengths of data arrays don't match")
 
-    def write_csv(self, v, iodm, min_lbd_dict, iodm_wavelength_start, iodm_wavelength_stop):
+    def write_csv(self, v, iodm, min_lbd_dict):
         _, lbd_min_array = zip(*min_lbd_dict.items())
-        iodm_start = [iodm_wavelength_start]*len(self.ec_items)
-        iodm_stop = [iodm_wavelength_stop] * len(self.ec_items)
-        uA = [self.ec_dataset.uA[item] for item in self.ec_items]
-        data = [v, uA, lbd_min_array, iodm, iodm_start, iodm_stop]
+        uA = self.ec_dataset.uA[self.cycles[self.current_cycle][0]:
+                                self.cycles[self.current_cycle][1]]
+        data = [v, uA, lbd_min_array, iodm]
         data_np = np.array(data)
         data_vertical = data_np.transpose()
-        header = 'U[V],I[A],lbd[nm],IODM,IODM range 1[nm], IODM range 2[nm]'
-        np.savetxt(self.filename, data_vertical, delimiter=',', header=header)
-
-    # def calc_wavelength_range_ids(self):
-    #     wvlgth_start = self.find_nearest_lambda(self.wavelength_range[0], self.opto_dataset.wavelength)
-    #     wvlgth_stop = self.find_nearest_lambda(self.wavelength_range[0] + self.wavelength_range[1],
-    #                                            self.opto_dataset.wavelength)
-    #     wavelength_range_ids = [wvlgth_start, wvlgth_stop]
-    #     return wavelength_range_ids
+        str_range = f"{self.iodm_range[0]:.2f}-{self.iodm_range[1]:.2f}"
+        header = f"U[V],I[A],lbd[nm],IODM (range={str_range}[nm])"
+        filename = self.filename.replace(".csv", f"_{self.current_cycle}.csv")
+        np.savetxt(filename, data_vertical, delimiter=',', header=header)
 
     def send_lbd_v(self):
         cycle = self.opto_cycles[self.current_cycle]
@@ -157,7 +138,7 @@ class Model(threading.Thread):
     def read_wavelengths(length):
         try:
             path = os.getcwd()
-            wavelength = np.genfromtxt(path+r'\wavelength.txt', delimiter=',')[2:]
+            wavelength = np.genfromtxt(path + r'\wavelength.txt', delimiter=',')[2:]
         except OSError:
             logging.error("no wavelength file, generating wavelength vector automatically")
             wavelength = np.linspace(344.6122, 1041.1877, num=length)
@@ -183,8 +164,12 @@ class Model(threading.Thread):
             for cycle in self.cycles:
                 if self.cycles[cycle][0] <= num <= self.cycles[cycle][1]:
                     row = row.split(',')
-                    row = [int(x) for x in row]
-                    tmp[cycle].append(row)
+                    try:
+                        row = [int(x) for x in row]
+                        tmp[cycle].append(row)
+                    except ValueError:
+                        logging.warning("This doesn't look like the right type of file")
+                        return False
                 else:
                     pass
 
@@ -202,6 +187,7 @@ class Model(threading.Thread):
                 self.opto_cycles[cycle] = self.insert_empty_cycle(self.cycles[cycle])
 
         logging.info("optical file loaded")
+        return True
 
     @staticmethod
     def insert_empty_cycle(cycles):
@@ -223,12 +209,15 @@ class Model(threading.Thread):
     def read_ec_csv(self, filename):
         logging.info("reading file: {}".format(filename))
         new_ec_dataset = ElectroChemSet()
-        new_ec_dataset.insert_ec_data2(filename)
-        self.ec_dataset = new_ec_dataset
-        self.cycles = self.ec_dataset.cycles
-        self._model_gui_queue.put(("number of cycles", len(self.ec_dataset.cycles)))
-        self.ec_items_from_cycle(0)
-        self.current_cycle = "Cycle 0"
+        success = new_ec_dataset.insert_ec_data2(filename)
+        if success:
+            self.ec_dataset = new_ec_dataset
+            self.cycles = self.ec_dataset.cycles
+            self._model_gui_queue.put(("number of cycles", len(self.ec_dataset.cycles)))
+            self.ec_items_from_cycle(0)
+            self.current_cycle = "Cycle 0"
+        else:
+            pass
 
     def ec_items_from_cycle(self, cycle_number=0):
         cycle = f'Cycle {cycle_number}'

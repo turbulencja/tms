@@ -6,13 +6,10 @@ import threading
 import matplotlib
 import os
 import matplotlib.ticker as mtick
-import matplotlib.patches as patches
-import tms_exceptions as tms_exc
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, scrolledtext, ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from queue import Empty
-from seaborn import set_theme
 from ec_dataset import ElectroChemSet
 
 matplotlib.use('TkAgg')
@@ -79,9 +76,12 @@ class View(tkinter.Frame):
                         logging.error("cannot draw optical data. ec file not loaded or opto file missing cycle")
                 elif order == 'number of cycles':
                     self.duck_frame.update_no_cycles(data)
-                elif order == 'fit λ(V)':
+                elif order in ['fit λ(V)', 'IODM(V)']:
                     cycle = self.cycle_number_increment(data[2])
                     self.analysis_frame.parameter_plotting(order, data[0], data[1], cycle)
+                elif order == 'fit λ(V)+IODM(V)':
+                    cycle = self.cycle_number_increment(data[3])
+                    self.analysis_frame.two_parameter_plotting(data[0], data[1], data[2], cycle)
                 else:
                     logging.info("unrecognized order from model: {}".format(record))
         self.after(400, self.poll_data_queue)
@@ -94,12 +94,12 @@ class View(tkinter.Frame):
         self.duck_frame = DuckFrame(self, borderwidth=1)
         self.opto_frame = OptoFrame(self, borderwidth=1)
         self.analysis_frame = AnalysisFrame(self, borderwidth=1)
-        self.param_frame = ParamFrame(self, borderwidth=1)
+        self.param_frame = LoggingFrame(self, borderwidth=1)
 
         self.duck_frame.grid(row=0, column=0)
         self.opto_frame.grid(row=0, column=1)
-        self.analysis_frame.grid(row=1, column=0)
-        self.param_frame.grid(row=1, column=1)
+        self.param_frame.grid(row=1, column=0)
+        self.analysis_frame.grid(row=1, column=1)
 
 
 class DuckFrame(tkinter.Frame):
@@ -231,7 +231,7 @@ class OptoFrame(tkinter.Frame):
             self.parent.initialdir = os.path.dirname(filename)
 
 
-class ParamFrame(tkinter.Frame):
+class LoggingFrame(tkinter.Frame):
     def __init__(self, root, *args, **kwargs):
         tkinter.Frame.__init__(self, root, *args, **kwargs)
         self.parent = root
@@ -295,7 +295,7 @@ class AnalysisFrame(tkinter.Frame):
         anls_redraw_button = ttk.Button(self, text="Redraw", command=self.model_send_params)
         self.param_option_string = tkinter.StringVar()
         anls_option = ttk.Combobox(self, textvariable=self.param_option_string)
-        anls_option['values'] = ('λ(V)+IODM(V)', 'fit λ(V)', 'IODM(V)')
+        anls_option['values'] = ('fit λ(V)+IODM(V)', 'fit λ(V)', 'IODM(V)')
         anls_redraw_button.grid()
         anls_option.grid()
         anls_option.current(0)
@@ -309,13 +309,14 @@ class AnalysisFrame(tkinter.Frame):
     def parameter_teardown(self):
         self.anls_figure.clf()
 
-    def two_parameter_plotting(self, ec_V, iodm, lbd_min):
+    def two_parameter_plotting(self, ec_V, iodm, lbd_min, cycle):
         self.parameter_teardown()
         min_ax = self.anls_figure.add_subplot(111)
         color = 'b'
         min_ax.plot(ec_V, lbd_min, '.', color=color)
         min_ax.set_xlabel('U [V]')
         min_ax.set_ylabel('λ [nm]', color=color)
+        min_ax.set_title(cycle)
 
         color = 'r'
         iodm_ax = min_ax.twinx()

@@ -5,7 +5,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-root_cv = r'C:\Users\aerial triceratops\PycharmProjects\TechMatStrateg\dane\_samples_\Kasia_2021.02.01'
+root_cv = r'C:\Users\aerial triceratops\PycharmProjects\TechMatStrateg2\dane\_samples_\Kasia_2021.02.01'
 wvlgth_path = r'../TMS_app/wavelength.txt'
 
 
@@ -29,8 +29,8 @@ def read_opto_file(filename):
     data = np.genfromtxt(filename, delimiter=',', encoding='utf-8', dtype=int)
     new_opto_dataset = OptoDatasetB()
     new_opto_dataset.wavelength = np.genfromtxt(wvlgth_path, delimiter=',')[2:]
+    new_opto_dataset.ec_ids = list(range(data.shape[1]))
     new_opto_dataset.insert_opto_from_csv(data)
-    new_opto_dataset.ec_ids = list(new_opto_dataset.transmission.keys())
     return new_opto_dataset
 
 

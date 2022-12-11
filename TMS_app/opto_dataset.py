@@ -26,13 +26,13 @@ class OptoDatasetB:
 
     def send_IODM(self, ec_ids, wavelength_range):
         iodm = {}
-        ref_id = 0
+        ref_id = min(self.ec_ids)
         wavelength_range_idx = [self.find_nearest(wavelength_range[0])[0], self.find_nearest(wavelength_range[1])[0]]
         ref = self.calc_sum_of_transmission(ref_id, wavelength_range_idx)
         for ec_id in ec_ids:
             sum = self.calc_sum_of_transmission(ec_id, wavelength_range_idx)
             iodm[ec_id] = sum/ref
-        return iodm, wavelength_range[0], wavelength_range[1]
+        return iodm
 
     def automatic_IODM(self, ec_ids, window_size):
         '''
@@ -84,6 +84,7 @@ class OptoDatasetB:
         return end_wlgth
 
     def calc_fit_range(self):
+        # self.ec_ids == []
         ref = self.transmission[min(self.ec_ids)]
         cutoff, _ = self.find_nearest(700)
         fft_ref = self.fft_smooth(ref)
@@ -112,9 +113,6 @@ class OptoDatasetB:
             data_cut = self.transmission[ec_id][start:stop]
             y_line = self.calc_fit(wavelength_cut, data_cut)
             idx = np.argmin(y_line)
-            if ec_id == 0:
-                self.iodm_initial_range = [start-100, start+100]
-                # self.iodm_initial_range = [start, start+idx]
             fit_lbd[ec_id] = wavelength_cut[idx]
         return fit_lbd
 
@@ -146,6 +144,7 @@ class OptoDatasetB:
         for num, opto_data in enumerate(data_in):
             self.transmission[num] = opto_data[2:]
         self.fit_range = self.calc_fit_range()
+        self.iodm_initial_range = [self.fit_range[0] - 100, self.fit_range[1] + 100]
 
     def find_nearest(self, value):
         diff = [abs(element - value) for element in self.wavelength]
@@ -196,5 +195,5 @@ class OptoCycleDataset(OptoDatasetB):
         self.ec_ids = list(range(cycle[0], cycle[1]))
         self.transmission = dict(zip(self.ec_ids, data_in))
         self.fit_range = self.calc_fit_range()
-
+        self.iodm_initial_range = [self.fit_range[0]-100, self.fit_range[1]+100]
 

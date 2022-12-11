@@ -111,7 +111,7 @@ def anlys(ech_file, opto_file, path, iodm_range):
         iodm_range = [iodm_wavelength_start, iodm_wavelength_stop]
     else:
         print('fast iodm calc for range {}-{} nm'.format(iodm_range[0], iodm_range[1]))
-        iodm_dict, iodm_wavelength_start, iodm_wavelength_stop = opto_dataset.send_IODM(ec_ids, iodm_range)
+        iodm_dict = opto_dataset.send_IODM(ec_ids, iodm_range)
     _, iodm_array = zip(*iodm_dict.items())
     print('calculating min')
     min_lbd_dict = opto_dataset.calc_min(opto_dataset.transmission)

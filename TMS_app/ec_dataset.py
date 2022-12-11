@@ -58,8 +58,8 @@ class ElectroChemSet:
                     tmp_cycle[key] = row_number
                     cycles_count = cycles_count + 1
                 else:
-                    print("this doesn't seem like the right type of file")
-                    return
+                    logging.warning("this doesn't seem like the right type of file")
+                    return False
         if tmp_cycle:
             self.update_cycles_dict(tmp_cycle, num, cycles_count)
         else:
@@ -68,6 +68,7 @@ class ElectroChemSet:
         self.V = V
         self.uA = uA
         self.id = range(len(V))
+        return True
 
     def insert_ec_csv(self, ec_data):
         try:
