@@ -289,16 +289,23 @@ class AnalysisFrame(tkinter.Frame):
         self.anls_figure = Figure(figsize=(5, 3))
         self.anls_figure.patch.set_facecolor('#f0f0f0')
         canvas = FigureCanvasTkAgg(self.anls_figure, master=self)
-        canvas.get_tk_widget().grid()
+        canvas.get_tk_widget().grid(row=1, columnspan=2)
         canvas.draw()
 
         anls_redraw_button = ttk.Button(self, text="Redraw", command=self.model_send_params)
+        anls_savedata_button = ttk.Button(self, text="Save data", command=self.save_data)
         self.param_option_string = tkinter.StringVar()
         anls_option = ttk.Combobox(self, textvariable=self.param_option_string)
         anls_option['values'] = ('fit λ(V)+IODM(V)', 'fit λ(V)', 'IODM(V)')
-        anls_redraw_button.grid()
-        anls_option.grid()
+
+        anls_option.grid(row=2, columnspan=2)
         anls_option.current(0)
+        anls_redraw_button.grid(row=3, column=0)
+        anls_savedata_button.grid(row=3, column=1)
+
+    def save_data(self):
+        logging.info("saving data to files")
+        self.parent.gui_model_q.put(("save data", 0))
 
     def model_send_params(self):
         logging.info("collecting data for plotting")

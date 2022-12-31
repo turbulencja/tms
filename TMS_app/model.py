@@ -11,6 +11,15 @@ import os
 class Model(threading.Thread):
 
     def __init__(self, **kwargs):
+        """
+        self.filename - string with full path to file
+        self.opto_cycles - dictionary with optical data cycles (max 3 cycles)
+        self.ec_dataset - ElectroChemSet
+        self.cycles - dictionary; keys are cycles, values are ranges of ec measurements indices
+        self.current_cycle - string; self.opto_cycles key pointing to current cycle
+        self.iodm_range - list with first and last wavelength of iodm range
+        self.iodm_window_size - approximate size of iodm wavelength window
+        """
         threading.Thread.__init__(self)
         self.daemon = True
         self.filename = None
@@ -18,8 +27,8 @@ class Model(threading.Thread):
         self.ec_dataset = None
         self.cycles = None
         self.current_cycle = None
+        self.data_saving = None
 
-        self.wavelength_range = None
         self.iodm_range = None  # nm
         self.iodm_window_size = 100  # nm
 
@@ -64,13 +73,13 @@ class Model(threading.Thread):
                         self._model_gui_queue.put(("opto file loaded", 0))
                 elif order == "load ec csv":
                     self.read_ec_csv(data)
+                elif order == "save data":
+                    if self.data_saving and self.data_saving['cycle'] == self.current_cycle:
+                        self.write_csv()
+                    else:
+                        logging.error("no data to save yet for the current cycle")
                 else:
                     logging.info("unrecognizable order: {}".format(order))
-
-    def send_iodm_meas(self):
-        wavelength_range_ids = self.calc_wavelength_range_ids()
-        iodm = self.opto_dataset.send_IODM(self.ec_items, wavelength_range_ids)
-        self._model_gui_queue.put(("IODM(meas)", iodm))
 
     def send_iodm_v(self):
         cycle = self.opto_cycles[self.current_cycle]
@@ -100,20 +109,27 @@ class Model(threading.Thread):
                                        self.cycles[self.current_cycle][1]]
         if len(cycle_ec_V) == len(iodm) == len(fit_lbd):
             self._model_gui_queue.put(('fit λ(V)+IODM(V)', (cycle_ec_V, iodm, fit_lbd, self.current_cycle)))
-            self.write_csv(cycle_ec_V, iodm, fit_lbd_dict)
+            self.data_saving = dict({"v": cycle_ec_V,
+                                     "cycle": self.current_cycle,
+                                     "iodm": iodm,
+                                     "fit_lbd_dict": fit_lbd_dict})
         else:
             logging.error("lengths of data arrays don't match")
 
-    def write_csv(self, v, iodm, min_lbd_dict):
-        _, lbd_min_array = zip(*min_lbd_dict.items())
-        uA = self.ec_dataset.uA[self.cycles[self.current_cycle][0]:
-                                self.cycles[self.current_cycle][1]]
+    def write_csv(self):
+        v = self.data_saving['v']
+        fit_lbd_dict = self.data_saving['fit_lbd_dict']
+        iodm = self.data_saving['iodm']
+        cycle = self.data_saving['cycle']
+        _, lbd_min_array = zip(*fit_lbd_dict.items())
+        uA = self.ec_dataset.uA[self.cycles[cycle][0]:
+                                self.cycles[cycle][1]]
         data = [v, uA, lbd_min_array, iodm]
         data_np = np.array(data)
         data_vertical = data_np.transpose()
         str_range = f"{self.iodm_range[0]:.2f}-{self.iodm_range[1]:.2f}"
         header = f"U[V],I[A],lbd[nm],IODM (range={str_range}[nm])"
-        filename = self.filename.replace(".csv", f"_{self.current_cycle}.csv")
+        filename = self.filename.replace(".csv", f"_{cycle}.csv")
         np.savetxt(filename, data_vertical, delimiter=',', header=header)
 
     def send_lbd_v(self):
