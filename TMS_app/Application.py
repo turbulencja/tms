@@ -10,7 +10,7 @@ from tkinter import filedialog, scrolledtext, ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from queue import Empty
-from ec_dataset import ElectroChemSet
+from ec_dataset import ElectroChemSet, ElectroChemCycle
 
 matplotlib.use('TkAgg')
 
@@ -58,9 +58,7 @@ class View(tkinter.Frame):
                 logging.info("order misshap: {}".format(record))
             else:
                 if order == "draw ec":
-                    self.ec_data = ElectroChemSet()
-                    self.ec_data.uA = data[0]
-                    self.ec_data.V = data[1]
+                    self.ec_data = ElectroChemCycle(data[2], uA=data[0], V=data[1], id=[None, None])
                     cycle = self.cycle_number_increment(data[2])
                     self.duck_frame.electrochemical_teardown()
                     self.duck_frame.draw_electrochemical(cycle)

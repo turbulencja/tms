@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import threading
 import logging
-from ec_dataset import ElectroChemSet
+from ec_dataset import ElectroChemSet, ElectroChemCycle
 from queue import Empty
 from opto_dataset import OptoCycleDataset
 import numpy as np
@@ -14,7 +14,8 @@ class Model(threading.Thread):
         """
         self.filename - string with full path to file
         self.opto_cycles - dictionary with optical data cycles (max 3 cycles)
-        self.ec_dataset - ElectroChemSet
+        self.ec_cycles - dictionary with ec data cycles (max 3 cycles)
+        self.ec_dataset - ElectroChemSet - TO REMOVE
         self.cycles - dictionary; keys are cycles, values are ranges of ec measurements indices
         self.current_cycle - string; self.opto_cycles key pointing to current cycle
         self.iodm_range - list with first and last wavelength of iodm range
@@ -24,6 +25,7 @@ class Model(threading.Thread):
         self.daemon = True
         self.filename = None
         self.opto_cycles = None
+        self.ec_cycles = {}
         self.ec_dataset = None
         self.cycles = None
         self.current_cycle = None
@@ -62,7 +64,7 @@ class Model(threading.Thread):
                 elif order == "wavelength range":
                     self.wavelength_range = data
                 elif order == "load opto csv":
-                    if not self.ec_dataset:
+                    if len(self.ec_cycles) < 1:
                         logging.info("ec file not loaded")
                         return
                     try:
@@ -76,6 +78,8 @@ class Model(threading.Thread):
                 elif order == "save data":
                     if self.data_saving and self.data_saving['cycle'] == self.current_cycle:
                         self.write_csv()
+                        # todo
+                        # self.save_spectra vmin, vmax, vmid
                     else:
                         logging.error("no data to save yet for the current cycle")
                 else:
@@ -83,8 +87,7 @@ class Model(threading.Thread):
 
     def send_iodm_v(self):
         cycle = self.opto_cycles[self.current_cycle]
-        cycle_ec_V = self.ec_dataset.V[self.cycles[self.current_cycle][0]:
-                                       self.cycles[self.current_cycle][1]]
+        cycle_ec_V = self.ec_cycles[self.current_cycle].V
         if self.iodm_range is None:
             iodm_dict, wavelength_start, wavelength_stop = cycle.automatic_IODM(cycle.transmission.keys(),
                                                                                 self.iodm_window_size)
@@ -105,8 +108,7 @@ class Model(threading.Thread):
             iodm_dict = cycle.send_IODM(cycle.transmission.keys(), self.iodm_range)
         _, iodm = zip(*iodm_dict.items())
         _, fit_lbd = zip(*fit_lbd_dict.items())
-        cycle_ec_V = self.ec_dataset.V[self.cycles[self.current_cycle][0]:
-                                       self.cycles[self.current_cycle][1]]
+        cycle_ec_V = self.ec_cycles[self.current_cycle].V
         if len(cycle_ec_V) == len(iodm) == len(fit_lbd):
             self._model_gui_queue.put(('fit λ(V)+IODM(V)', (cycle_ec_V, iodm, fit_lbd, self.current_cycle)))
             self.data_saving = dict({"v": cycle_ec_V,
@@ -116,14 +118,16 @@ class Model(threading.Thread):
         else:
             logging.error("lengths of data arrays don't match")
 
+    def save_boundary_spectra(self):
+        pass
+
     def write_csv(self):
         v = self.data_saving['v']
         fit_lbd_dict = self.data_saving['fit_lbd_dict']
         iodm = self.data_saving['iodm']
         cycle = self.data_saving['cycle']
         _, lbd_min_array = zip(*fit_lbd_dict.items())
-        uA = self.ec_dataset.uA[self.cycles[cycle][0]:
-                                self.cycles[cycle][1]]
+        uA = self.ec_cycles[self.current_cycle].uA
         data = [v, uA, lbd_min_array, iodm]
         data_np = np.array(data)
         data_vertical = data_np.transpose()
@@ -136,8 +140,7 @@ class Model(threading.Thread):
         cycle = self.opto_cycles[self.current_cycle]
         fit_lbd_dict = cycle.calc_auto_fit()
         fit_lbd = fit_lbd_dict.values()
-        cycle_ec_V = self.ec_dataset.V[self.cycles[self.current_cycle][0]:
-                                       self.cycles[self.current_cycle][1]]
+        cycle_ec_V = self.ec_cycles[self.current_cycle].V
         if len(cycle_ec_V) == len(fit_lbd):
             logging.info(f"plotting lbd(V) for {self.current_cycle}")
             self._model_gui_queue.put(("fit λ(V)", (cycle_ec_V, fit_lbd, self.current_cycle)))
@@ -163,22 +166,25 @@ class Model(threading.Thread):
     def read_opto_cycle_csv(self, filename):
         """
         reading optical file into separate cycles
-        :param filename: path to file
-        :return:
+        :param filename: string path to file
+        :return: bool success
         """
         logging.info("reading file: {}".format(filename))
         self.filename = self.convert_filename(filename)
         data = open(filename)
 
-        self.opto_cycles = dict.fromkeys(self.cycles.keys())
-        tmp = dict.fromkeys(self.cycles.keys())
+        self.opto_cycles = dict.fromkeys(self.ec_cycles.keys())
+        tmp = dict.fromkeys(self.ec_cycles.keys())
 
-        for cycle in self.cycles:
+        for cycle in self.ec_cycles:
             tmp[cycle] = []
 
         for num, row in enumerate(data):
-            for cycle in self.cycles:
-                if self.cycles[cycle][0] <= num <= self.cycles[cycle][1]:
+            for cycle in self.ec_cycles:
+                if num == 1485:
+                    pass
+                # todo: refactor for current self.ec_cycles format
+                if self.ec_cycles[cycle].id[0] <= num <= self.ec_cycles[cycle].id[1]:
                     row = row.split(',')
                     try:
                         row = [int(x) for x in row]
@@ -196,7 +202,7 @@ class Model(threading.Thread):
                 wavelength = self.read_wavelengths(length)
                 new_cycle = OptoCycleDataset()
                 new_cycle.wavelength = wavelength
-                new_cycle.insert_opto_from_csv(tmp_array, self.cycles[cycle])
+                new_cycle.insert_opto_from_csv(tmp_array, self.ec_cycles[cycle].id)
                 self.opto_cycles[cycle] = new_cycle
             else:
                 logging.warning(f"missing {cycle}; generating empty cycle")
@@ -222,10 +228,10 @@ class Model(threading.Thread):
         else:
             logging.info("optical file not loaded")
 
-    def read_ec_csv(self, filename):
+    def read_ec_csv_old(self, filename):
         logging.info("reading file: {}".format(filename))
         new_ec_dataset = ElectroChemSet()
-        success = new_ec_dataset.insert_ec_data2(filename)
+        success = new_ec_dataset.insert_ec_data(filename)
         if success:
             self.ec_dataset = new_ec_dataset
             self.cycles = self.ec_dataset.cycles
@@ -235,13 +241,55 @@ class Model(threading.Thread):
         else:
             pass
 
+    def read_ec_csv(self, filename):
+        logging.info("reading file: {}".format(filename))
+        success = self.read_ec_cycles_csv(filename)
+        if success:
+            self._model_gui_queue.put(("number of cycles", len(self.ec_cycles)))
+            self.ec_items_from_cycle(0)
+            self.current_cycle = "Cycle 0"
+        else:
+            pass
+
+    def read_ec_cycles_csv(self, filename):
+        data = open(filename)
+        cycles_count = 0
+        V, uA = [], []
+        key, first_meas_id = None, None
+        for num, row in enumerate(data):
+            try:
+                tmp_v, tmp_ua = row.split(', ')
+                V.append(float(tmp_v))
+                uA.append(float(tmp_ua))
+            except ValueError:
+                if row.startswith('Cycle'):
+                    row_number = num - cycles_count
+                    if key:
+                        # create a new cycle, populate ec_cycles_dict
+                        new_ec_cycle = ElectroChemCycle(key, V=V, uA=uA, id=[first_meas_id, row_number-1])
+                        self.ec_cycles[key] = new_ec_cycle
+                        V, uA = [], []
+                    key = row.split(', ')[0]
+                    first_meas_id = row_number
+                    cycles_count = cycles_count + 1
+                else:
+                    logging.warning("this doesn't seem like the right type of file")
+                    return False
+        if key:
+            # adding last cycle to the cycles dictionary
+            new_ec_cycle = ElectroChemCycle(key, V=V, uA=uA, id=[first_meas_id, num-cycles_count-1])
+            self.ec_cycles[key] = new_ec_cycle
+        else:
+            # if ec file has no info on cycles then a single "cycle 0" is created
+            new_ec_cycle = ElectroChemCycle('Cycle 0', V=V, uA=uA, id=[0, num])
+            self.ec_cycles['Cycle 0'] = new_ec_cycle
+        return True
+
     def ec_items_from_cycle(self, cycle_number=0):
         cycle = f'Cycle {cycle_number}'
-        if self.ec_dataset:
-            cycle_ec_uA = self.ec_dataset.uA[self.cycles[cycle][0]:
-                                             self.cycles[cycle][1]]
-            cycle_ec_V = self.ec_dataset.V[self.cycles[cycle][0]:
-                                           self.cycles[cycle][1]]
+        if len(self.ec_cycles) > 0:
+            cycle_ec_uA = self.ec_cycles[cycle].uA
+            cycle_ec_V = self.ec_cycles[cycle].V
             self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V, cycle)))
         else:
             logging.info("ec file not loaded")
