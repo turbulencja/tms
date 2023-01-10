@@ -194,6 +194,8 @@ class OptoCycleDataset(OptoDatasetB):
     def insert_opto_from_csv(self, data_in, cycle):
         self.ec_ids = list(range(cycle[0], cycle[1]+1))
         self.transmission = dict(zip(self.ec_ids, data_in))
+        if len(self.ec_ids) != data_in.shape[0]:
+            logging.warning("numbers of measurements between ec and opto files don't match")
         self.fit_range = self.calc_fit_range()
         self.iodm_initial_range = [self.fit_range[0]-100, self.fit_range[1]+100]
 

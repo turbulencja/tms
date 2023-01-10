@@ -61,8 +61,6 @@ class Model(threading.Thread):
                 elif order == "draw ec cycle":
                     self.current_cycle = "Cycle {}".format(data)
                     self.ec_items_from_cycle(data)
-                elif order == "wavelength range":
-                    self.wavelength_range = data
                 elif order == "load opto csv":
                     if len(self.ec_cycles) < 1:
                         logging.info("ec file not loaded")
@@ -181,9 +179,6 @@ class Model(threading.Thread):
 
         for num, row in enumerate(data):
             for cycle in self.ec_cycles:
-                if num == 1485:
-                    pass
-                # todo: refactor for current self.ec_cycles format
                 if self.ec_cycles[cycle].id[0] <= num <= self.ec_cycles[cycle].id[1]:
                     row = row.split(',')
                     try:
@@ -263,21 +258,21 @@ class Model(threading.Thread):
                 uA.append(float(tmp_ua))
             except ValueError:
                 if row.startswith('Cycle'):
+                    cycles_count = cycles_count + 1
                     row_number = num - cycles_count
                     if key:
                         # create a new cycle, populate ec_cycles_dict
-                        new_ec_cycle = ElectroChemCycle(key, V=V, uA=uA, id=[first_meas_id, row_number-1])
+                        new_ec_cycle = ElectroChemCycle(key, V=V, uA=uA, id=[first_meas_id, row_number])
                         self.ec_cycles[key] = new_ec_cycle
                         V, uA = [], []
                     key = row.split(', ')[0]
-                    first_meas_id = row_number
-                    cycles_count = cycles_count + 1
+                    first_meas_id = row_number + 1
                 else:
                     logging.warning("this doesn't seem like the right type of file")
                     return False
         if key:
             # adding last cycle to the cycles dictionary
-            new_ec_cycle = ElectroChemCycle(key, V=V, uA=uA, id=[first_meas_id, num-cycles_count-1])
+            new_ec_cycle = ElectroChemCycle(key, V=V, uA=uA, id=[first_meas_id, num-cycles_count])
             self.ec_cycles[key] = new_ec_cycle
         else:
             # if ec file has no info on cycles then a single "cycle 0" is created
