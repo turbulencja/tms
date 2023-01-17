@@ -5,6 +5,14 @@ significant_points = ['Umax', 'Umin', 'Umid1', 'Umid2']
 
 class ElectroChemSet:
     def __init__(self, name=None, **kwargs):
+        """
+        self.name -
+        self.uA -
+        self.V -
+        self.id -
+        self.cycles -
+        self.id_dict -
+        """
         self.name = name
         self.uA = kwargs['uA']
         self.V = kwargs['V']
@@ -61,14 +69,19 @@ class ElectroChemSet:
 
     def pick_significant_points(self):
         max_V = np.max(self.V)
-        ([[max_V_idx]]) = np.where(self.V == max_V)
+        ([max_V_idx]) = np.where(self.V == max_V)
         min_V = np.min(self.V)
-        ([[min_V_idx]]) = np.where(self.V == min_V)
-        diff_idx = abs(max_V_idx-min_V_idx)//2
+        ([min_V_idx]) = np.where(self.V == min_V)
+        diff_idx = abs(max_V_idx[0]-min_V_idx[0])//2
         self.id_dict['Umax'] = max_V_idx
         self.id_dict['Umin'] = min_V_idx
-        self.id_dict['Umid1'] = max_V_idx+diff_idx
-        self.id_dict['Umid2'] = max_V_idx-diff_idx
+        self.id_dict['Umid1'] = np.asarray([max_V_idx[0]+diff_idx])
+        self.id_dict['Umid2'] = np.asarray([max_V_idx[0]-diff_idx])
+        # convert negative indices to positive
+        for id_key in ['Umid1', 'Umid2']:
+            for num, item in enumerate(self.id_dict[id_key]):
+                if item < 0:
+                    self.id_dict[id_key][num] = len(self.V) + item
 
 
 class ElectroChemCycle(ElectroChemSet):

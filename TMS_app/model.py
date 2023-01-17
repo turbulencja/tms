@@ -76,8 +76,7 @@ class Model(threading.Thread):
                 elif order == "save data":
                     if self.data_saving and self.data_saving['cycle'] == self.current_cycle:
                         self.write_csv()
-                        # todo
-                        # self.save_spectra vmin, vmax, vmid
+                        self.save_boundary_spectra()
                     else:
                         logging.error("no data to save yet for the current cycle")
                 else:
@@ -117,7 +116,27 @@ class Model(threading.Thread):
             logging.error("lengths of data arrays don't match")
 
     def save_boundary_spectra(self):
-        pass
+        cycle_opto = self.opto_cycles[self.current_cycle]
+        cycle_ec = self.ec_cycles[self.current_cycle]
+        cycle_ec_idx0 = cycle_ec.id[0]
+        cycle_ec.pick_significant_points()
+        boundary_opto, boundary_keys = [], []
+        for boundary_point in cycle_ec.id_dict:
+            boundary_meas_idx = cycle_ec.id_dict[boundary_point]
+            for idx in boundary_meas_idx:
+                boundary_opto.append(cycle_opto.transmission[cycle_ec_idx0+idx])
+                boundary_keys.append("{}={}[V],".format(boundary_point, cycle_ec.V[idx]))
+        boundary_opto_np = np.array(boundary_opto)
+        data_vertical = boundary_opto_np.transpose()
+        header = "".join(boundary_keys)
+        filename = self.filename.replace(".csv", f"_boundary_spectra_{self.current_cycle}.csv")
+        try:
+            np.savetxt(filename, data_vertical, delimiter=',', header=header, fmt="%d")
+        except (PermissionError, FileNotFoundError) as e:
+            if e == PermissionError:
+                logging.error("close file before saving")
+            else:
+                logging.error("unable to save data to file. file path may be too long")
 
     def write_csv(self):
         v = self.data_saving['v']
@@ -132,7 +151,12 @@ class Model(threading.Thread):
         str_range = f"{self.iodm_range[0]:.2f}-{self.iodm_range[1]:.2f}"
         header = f"U[V],I[A],lbd[nm],IODM (range={str_range}[nm])"
         filename = self.filename.replace(".csv", f"_{cycle}.csv")
-        np.savetxt(filename, data_vertical, delimiter=',', header=header)
+        # U= "%.6f", I= "%.10e", lbd= "%.4f", IODM= "%.6f"
+        precision = ["%.6f", "%.10e", "%.4f", "%.6f"]
+        try:
+            np.savetxt(filename, data_vertical, delimiter=',', header=header, fmt=precision)
+        except PermissionError:
+            logging.error("close all files before saving")
 
     def send_lbd_v(self):
         cycle = self.opto_cycles[self.current_cycle]
