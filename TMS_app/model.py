@@ -23,6 +23,7 @@ class Model(threading.Thread):
         """
         threading.Thread.__init__(self)
         self.daemon = True
+        self.automatic_mode = False
         self.filename = None
         self.opto_cycles = None
         self.ec_cycles = {}
@@ -47,7 +48,9 @@ class Model(threading.Thread):
             except Empty:
                 pass
             else:
-                if order == 'fit λ(V)':
+                if order == "automatic_mode":
+                    self.automatic_mode = data
+                elif order == 'fit λ(V)':
                     try:
                         self.send_lbd_v()
                     except KeyError:
@@ -58,9 +61,12 @@ class Model(threading.Thread):
                     self.send_iodm_lbd()
                 elif order == "draw opto cycle":
                     self.draw_opto_cycle()
-                elif order == "draw ec cycle":
+                elif order == "ec cycle" and not self.automatic_mode:
                     self.current_cycle = "Cycle {}".format(data)
                     self.ec_items_from_cycle(data)
+                elif order == "ec cycle" and self.automatic_mode:
+                    # todo: flag or unflag cycle for analysis
+                    pass
                 elif order == "load opto csv":
                     if len(self.ec_cycles) < 1:
                         logging.info("ec file not loaded")
