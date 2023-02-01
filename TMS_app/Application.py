@@ -74,10 +74,10 @@ class View(tkinter.Frame):
                     except ValueError:
                         logging.error("cannot draw optical data. ec file not loaded or opto file missing cycle")
                 elif order == 'number of cycles' and not self.automatic_mode:
-                    self.param_frame.no_cycles = data
-                    self.param_frame.update_no_cycles(data)
+                    self.param_frame.cycle_buttons.no_cycles = data
+                    self.param_frame.cycle_buttons.update_no_cycles(data)
                 elif order == 'number of cycles' and self.automatic_mode:
-                    self.param_frame.no_cycles = data
+                    self.param_frame.cycle_buttons.no_cycles = data
                 elif order in ['fit λ(V)', 'IODM(V)']:
                     cycle = self.cycle_number_increment(data[2])
                     self.analysis_frame.parameter_plotting(order, data[0], data[1], cycle)
@@ -128,7 +128,7 @@ class DuckFrame(tkinter.Frame):
         self.parent = root
         self.duck_figure = Figure(figsize=(5, 3))
         self.duck_figure.patch.set_facecolor('#f0f0f0')
-        self.cycles = 1     # number of cycles
+        self.cycles = 1  # number of cycles
         self.current_cycle = 0
         canvas = FigureCanvasTkAgg(self.duck_figure, master=self)
         canvas.get_tk_widget().grid(row=0)
@@ -163,12 +163,13 @@ class DuckFrame(tkinter.Frame):
         self.duck_figure.canvas.draw()
 
     def find_ec_range(self, cycle=0):
-        logging.info(f"plotting cycle {cycle+1}")
+        logging.info(f"plotting cycle {cycle + 1}")
         self.current_cycle = cycle
         self.parent.gui_model_q.put(("draw ec cycle", cycle))
 
     def electrochemical_teardown(self):
         self.duck_figure.clf()
+
 
 class OptoFrame(tkinter.Frame):
     def __init__(self, root, *args, **kwargs):
@@ -184,8 +185,8 @@ class OptoFrame(tkinter.Frame):
                                          text="Redraw",
                                          command=self.redraw_opto)
         self.optical_reference_button = ttk.Button(self,
-                                              text="Browse for optical data",
-                                              command=self.askopenfile_opto_csv)
+                                                   text="Browse for optical data",
+                                                   command=self.askopenfile_opto_csv)
 
         self.refresh_button.grid(row=3, column=0)
         self.optical_reference_button.grid(row=3, column=1)
@@ -234,29 +235,7 @@ class ParamFrame(tkinter.Frame):
         tkinter.Frame.__init__(self, root, *args, **kwargs)
         self.parent = root
         self.setup_frame()
-        self.no_cycles = 1
         self.after(100, self.poll_log_queue)
-
-    def update_no_cycles(self, num_cycles):
-        if num_cycles == 1:
-            self.ec_cycle1_button.state(["!disabled"])
-            self.ec_cycle2_button.state(["disabled"])
-            self.ec_cycle3_button.state(["disabled"])
-        elif num_cycles == 2:
-            self.ec_cycle1_button.state(["!disabled"])
-            self.ec_cycle2_button.state(["!disabled"])
-            self.ec_cycle3_button.state(["disabled"])
-        elif num_cycles == 3:
-            self.ec_cycle1_button.state(["!disabled"])
-            self.ec_cycle2_button.state(["!disabled"])
-            self.ec_cycle3_button.state(["!disabled"])
-        elif num_cycles > 3:
-            self.ec_cycle1_button.state(["!disabled"])
-            self.ec_cycle2_button.state(["!disabled"])
-            self.ec_cycle3_button.state(["!disabled"])
-            logging.info("more than 3 cycles")
-        else:
-            logging.info(f"unrecognizable cycles number: {num_cycles}")
 
     def set_automatic_mode(self):
         if not self.parent.automatic_mode:
@@ -269,14 +248,12 @@ class ParamFrame(tkinter.Frame):
     def automatic_mode_on(self):
         self.on_off_experiment_button.state(["!disabled"])
         self.browse_exp_button.state(["!disabled"])
-        self.ec_cycle1_button.state(["!disabled"])
-        self.ec_cycle2_button.state(["!disabled"])
-        self.ec_cycle3_button.state(["!disabled"])
+        self.cycle_buttons.automatic_mode_on()
 
     def automatic_mode_off(self):
         self.on_off_experiment_button.state(["disabled"])
         self.browse_exp_button.state(["disabled"])
-        self.update_no_cycles(self.no_cycles)
+        self.cycle_buttons.automatic_mode_off()
 
     def setup_logger(self):
         self.logger_text = scrolledtext.ScrolledText(self, state='disabled', height=8, width=60)
@@ -293,14 +270,8 @@ class ParamFrame(tkinter.Frame):
         self.mode_radio = ttk.Radiobutton(self, command=self.set_automatic_mode, text="automatic mode")
         self.mode_radio.grid(row=2, column=0)
 
-        self.ec_cycle1_button = CycleButton(self, cycle=0)
-        self.ec_cycle1_button.grid(row=0, column=0)
-        self.ec_cycle2_button = CycleButton(self, cycle=1)
-        self.ec_cycle2_button.state(["disabled"])
-        self.ec_cycle2_button.grid(row=0, column=1)
-        self.ec_cycle3_button = CycleButton(self, cycle=2)
-        self.ec_cycle3_button.state(["disabled"])
-        self.ec_cycle3_button.grid(row=0, column=2)
+        self.cycle_buttons = CycleButtonsGroup(self)
+        self.cycle_buttons.grid(row=0, columnspan=3)
 
         self.browse_exp_button = ttk.Button(self, text="Browse for experiment", command=self.askopenfile_exp)
         self.browse_exp_button.state(["disabled"])
@@ -348,11 +319,99 @@ class CycleButton(ttk.Button):
         """
         self.parent = parent
         self.cycle = cycle
-        button_text = "Cycle {}".format(self.cycle+1)
-        ttk.Button.__init__(self, parent, text=button_text, command=self.button_command)
+        self.on = False
+        #########################
+        self.style = ttk.Style()
+        self.style.configure(style="cycle_{}.TButton".format(self.cycle))
+        self.color_on = "#0000ff"
+        self.color_off = "#000000"
+        #########################
+        button_text = "Cycle {}".format(self.cycle + 1)
+        ttk.Button.__init__(self, parent, text=button_text,
+                            style="cycle_{}.TButton".format(self.cycle),
+                            command=self.button_command)
+
+    def change_button_color(self, color: str) -> None:
+        # configure the style with a background color
+        self.style.configure("cycle_{}.TButton".format(self.cycle), foreground=color)
 
     def button_command(self):
-        self.parent.parent.gui_model_q.put(("ec cycle", self.cycle))
+        if self.on:
+            self.button_off()
+        else:
+            self.button_on()
+
+    def button_on(self):
+        self.change_button_color(self.color_on)
+        self.parent.button_on(self.cycle)
+        self.on = True
+
+    def button_off(self):
+        self.change_button_color(self.color_off)
+        self.parent.button_off(self.cycle)
+        self.on = False
+
+
+class CycleButtonsGroup(tkinter.Frame):
+    def __init__(self, root, *args, **kwargs):
+        tkinter.Frame.__init__(self, root, *args, **kwargs)
+        self.parent = root
+        self.no_cycles = 1
+        self.automatic_mode = False
+        self.cycle_buttons_dict = {}
+        self.buttons_on = []
+        self.setup_frame()
+
+    def setup_frame(self):
+        for num in range(3):
+            cycle = CycleButton(self, cycle=num)
+            cycle.grid(row=0, column=num)
+            if num >= 1:
+                cycle.state(["disabled"])
+            self.cycle_buttons_dict[num] = cycle
+
+    def button_on(self, cycle):
+        if self.automatic_mode:
+            self.buttons_on.append(cycle)
+        else:
+            for item in self.buttons_on:
+                self.cycle_buttons_dict[item].button_off()
+            self.buttons_on = [cycle]
+            self.parent.parent.gui_model_q.put(("ec cycle", cycle))
+
+    def button_off(self, cycle):
+        self.buttons_on.remove(cycle)
+
+    def update_no_cycles(self, num_cycles):
+        # disable all buttons
+        for cycle_button in self.cycle_buttons_dict:
+            self.cycle_buttons_dict[cycle_button].state(["disabled"])
+
+        # enable valid buttons
+        if num_cycles > 0:
+            try:
+                for num in range(num_cycles):
+                    self.cycle_buttons_dict[num].state(["!disabled"])
+            except KeyError:
+                logging.warning(f"unrecognizable cycle number: {num_cycles}")
+        else:
+            self.cycle_buttons_dict[0].state(["!disabled"])
+
+    def automatic_mode_on(self):
+        # multiple choice
+        # default: all cycles on
+        self.automatic_mode = True
+        self.update_no_cycles(3)
+        for num in range(3):
+            self.cycle_buttons_dict[num].button_on()
+
+    def automatic_mode_off(self):
+        # single choice
+        # default: check number of cycles
+        self.automatic_mode = False
+        for num in range(3):
+            self.cycle_buttons_dict[num].button_off()
+        self.update_no_cycles(self.no_cycles)
 
 
 class AnalysisFrame(tkinter.Frame):
@@ -439,7 +498,6 @@ class RoundedDoubleVar(tkinter.DoubleVar):
 
     def round_string(self):
         return "{:.2f}".format(self.get())
-
 
 
 if __name__ == '__main__':
