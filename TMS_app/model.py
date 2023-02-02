@@ -61,12 +61,9 @@ class Model(threading.Thread):
                     self.send_iodm_lbd()
                 elif order == "draw opto cycle":
                     self.draw_opto_cycle()
-                elif order == "ec cycle" and not self.automatic_mode:
+                elif order == "ec cycle":
                     self.current_cycle = "Cycle {}".format(data)
                     self.ec_items_from_cycle(data)
-                elif order == "ec cycle" and self.automatic_mode:
-                    # todo: flag or unflag cycle for analysis
-                    pass
                 elif order == "load opto csv":
                     if len(self.ec_cycles) < 1:
                         logging.info("ec file not loaded")

@@ -234,6 +234,9 @@ class ParamFrame(tkinter.Frame):
     def __init__(self, root, *args, **kwargs):
         tkinter.Frame.__init__(self, root, *args, **kwargs)
         self.parent = root
+        self.running_experiment = False
+        self.start_stop_stringvar = tkinter.StringVar()
+        self.dirname = None
         self.setup_frame()
         self.after(100, self.poll_log_queue)
 
@@ -277,21 +280,41 @@ class ParamFrame(tkinter.Frame):
         self.browse_exp_button.state(["disabled"])
         self.browse_exp_button.grid(row=2, column=1)
 
-        self.on_off_experiment_button = ttk.Button(self, text="Start experiment", command=self.on_off_experiment)
+        self.on_off_experiment_button = ttk.Button(self, textvariable=self.start_stop_stringvar, command=self.on_off_experiment)
+        self.start_stop_stringvar.set("start experiment")
         self.on_off_experiment_button.state(["disabled"])
         self.on_off_experiment_button.grid(row=2, column=2)
 
     def on_off_experiment(self):
+        if not self.running_experiment and self.dirname:
+            self.start_experiment()
+            logging.info("experiment started")
+        elif not self.running_experiment and not self.dirname:
+            logging.warning("no experiment directory")
+        else:
+            self.stop_experiment()
+
+    def start_experiment(self):
+        # request list of cycles from CycleButtonsGroup
+        # inform model to start experiment
+        self.running_experiment = True
+        self.start_stop_stringvar.set("stop experiment")
         pass
 
+    def stop_experiment(self):
+        # send break order to model
+        self.running_experiment = False
+        self.start_stop_stringvar.set("start experiment")
+        self.parent.gui_model_q.put(("stop experiment", None))
+
     def askopenfile_exp(self):
-        dirname = filedialog.askdirectory(initialdir=self.parent.initialdir, title="Select directory")
-        if not dirname:
+        self.dirname = filedialog.askdirectory(initialdir=self.parent.initialdir, title="Select directory")
+        if not self.dirname:
             pass
         else:
-            logging.info("experiment {}".format(dirname))
-            # self.parent.gui_model_q.put(("load ec csv", filename))
+            logging.info("experiment {}".format(self.dirname))
             # self.parent.initialdir = os.path.dirname(filename)
+            # todo: send to View for display
 
     def display_log(self, record):
         self.logger_text.configure(state='normal')
