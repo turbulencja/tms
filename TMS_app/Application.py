@@ -63,6 +63,8 @@ class View(tkinter.Frame):
                     cycle = self.cycle_number_increment(data[2])
                     self.duck_frame.electrochemical_teardown()
                     self.duck_frame.draw_electrochemical(cycle)
+                elif order == "all done":
+                    self.param_frame.all_done()
                 elif order == "opto file loaded":
                     self.gui_model_q.put(("draw opto cycle", None))
                 elif order == "draw opto":
@@ -110,7 +112,6 @@ class View(tkinter.Frame):
             self.opto_frame.automatic_mode_on()
             self.analysis_frame.automatic_mode_on()
             self.param_frame.automatic_mode_on()
-            self.gui_model_q.put(("automatic_mode", True))
             logging.info("automatic mode: on")
         else:
             self.automatic_mode = False
@@ -118,7 +119,6 @@ class View(tkinter.Frame):
             self.opto_frame.automatic_mode_off()
             self.analysis_frame.automatic_mode_off()
             self.param_frame.automatic_mode_off()
-            self.gui_model_q.put(("automatic_mode", False))
             logging.info("automatic mode: off")
 
 
@@ -249,12 +249,12 @@ class ParamFrame(tkinter.Frame):
             self.mode_radio.state(["!selected"])
 
     def automatic_mode_on(self):
-        self.on_off_experiment_button.state(["!disabled"])
+        self.start_experiment_button.state(["!disabled"])
         self.browse_exp_button.state(["!disabled"])
         self.cycle_buttons.automatic_mode_on()
 
     def automatic_mode_off(self):
-        self.on_off_experiment_button.state(["disabled"])
+        self.start_experiment_button.state(["disabled"])
         self.browse_exp_button.state(["disabled"])
         self.cycle_buttons.automatic_mode_off()
 
@@ -280,10 +280,12 @@ class ParamFrame(tkinter.Frame):
         self.browse_exp_button.state(["disabled"])
         self.browse_exp_button.grid(row=2, column=1)
 
-        self.on_off_experiment_button = ttk.Button(self, textvariable=self.start_stop_stringvar, command=self.on_off_experiment)
-        self.start_stop_stringvar.set("start experiment")
-        self.on_off_experiment_button.state(["disabled"])
-        self.on_off_experiment_button.grid(row=2, column=2)
+        self.start_experiment_button = ttk.Button(self, text="start experiment", command=self.on_off_experiment)
+        self.start_experiment_button.state(["disabled"])
+        self.start_experiment_button.grid(row=2, column=2)
+
+    def all_done(self):
+        self.start_experiment_button.state(['!disabled'])
 
     def on_off_experiment(self):
         if not self.running_experiment and self.dirname:
@@ -291,21 +293,13 @@ class ParamFrame(tkinter.Frame):
             logging.info("experiment started")
         elif not self.running_experiment and not self.dirname:
             logging.warning("no experiment directory")
-        else:
-            self.stop_experiment()
 
     def start_experiment(self):
         # request list of cycles from CycleButtonsGroup
         # inform model to start experiment
         self.running_experiment = True
-        self.start_stop_stringvar.set("stop experiment")
-        pass
-
-    def stop_experiment(self):
-        # send break order to model
-        self.running_experiment = False
-        self.start_stop_stringvar.set("start experiment")
-        self.parent.gui_model_q.put(("stop experiment", None))
+        self.parent.gui_model_q.put(("start experiment", self.dirname))
+        self.start_experiment_button.state(['disabled'])
 
     def askopenfile_exp(self):
         self.dirname = filedialog.askdirectory(initialdir=self.parent.initialdir, title="Select directory")

@@ -23,12 +23,10 @@ class Model(threading.Thread):
         """
         threading.Thread.__init__(self)
         self.daemon = True
-        self.automatic_mode = False
         self.filename = None
         self.opto_cycles = None
         self.ec_cycles = {}
-        self.ec_dataset = None
-        self.cycles = None
+        # self.cycles = None
         self.current_cycle = None
         self.data_saving = None
 
@@ -48,8 +46,8 @@ class Model(threading.Thread):
             except Empty:
                 pass
             else:
-                if order == "automatic_mode":
-                    self.automatic_mode = data
+                if order == "start experiment":
+                    self.run_experiment(data)
                 elif order == 'fit λ(V)':
                     try:
                         self.send_lbd_v()
@@ -63,7 +61,7 @@ class Model(threading.Thread):
                     self.draw_opto_cycle()
                 elif order == "ec cycle":
                     self.current_cycle = "Cycle {}".format(data)
-                    self.ec_items_from_cycle(data)
+                    self.ec_items_from_cycle()
                 elif order == "load opto csv":
                     if len(self.ec_cycles) < 1:
                         logging.info("ec file not loaded")
@@ -84,6 +82,33 @@ class Model(threading.Thread):
                         logging.error("no data to save yet for the current cycle")
                 else:
                     logging.info("unrecognizable order: {}".format(order))
+
+    def run_experiment(self, root):
+        for dir, subdirs, files in os.walk(root):
+            ec_file = None
+            opto_file = None
+            for file in files:
+                if file.startswith("ech_hello_") and file.endswith(".csv"):
+                    ec_file = os.path.join(dir, file)
+                elif file.startswith("opto_") and file.endswith(".csv"):
+                    opto_file = os.path.join(dir, file)
+                if ec_file and opto_file:
+                    _, dirname = os.path.split(dir)
+                    logging.info(f"analysing {dirname}")
+                    self.run_auto_analysis(ec_file, opto_file)
+        self._model_gui_queue.put(("all done", None))
+
+    def run_auto_analysis(self, ec_file, opto_file):
+        # todo: zakodowac jedno iodm range
+        self.read_ec_cycles_csv(ec_file)
+        self.read_opto_cycle_csv(opto_file)
+        for cycle in self.ec_cycles:
+            self.current_cycle = cycle
+            self.ec_items_from_cycle()
+            self.draw_opto_cycle()
+            self.send_iodm_lbd()
+            self.write_csv()
+            self.save_boundary_spectra()
 
     def send_iodm_v(self):
         cycle = self.opto_cycles[self.current_cycle]
@@ -228,6 +253,7 @@ class Model(threading.Thread):
                 self.opto_cycles[cycle] = new_cycle
             else:
                 logging.warning(f"missing {cycle}; generating empty cycle")
+                # todo: fix self.cycles usage!!!!
                 self.opto_cycles[cycle] = self.insert_empty_cycle(self.cycles[cycle])
 
         logging.info("optical file loaded")
@@ -250,26 +276,26 @@ class Model(threading.Thread):
         else:
             logging.info("optical file not loaded")
 
-    def read_ec_csv_old(self, filename):
-        logging.info("reading file: {}".format(filename))
-        new_ec_dataset = ElectroChemSet()
-        success = new_ec_dataset.insert_ec_data(filename)
-        if success:
-            self.ec_dataset = new_ec_dataset
-            self.cycles = self.ec_dataset.cycles
-            self._model_gui_queue.put(("number of cycles", len(self.ec_dataset.cycles)))
-            self.ec_items_from_cycle(0)
-            self.current_cycle = "Cycle 0"
-        else:
-            pass
+    # def read_ec_csv_old(self, filename):
+    #     logging.info("reading file: {}".format(filename))
+    #     new_ec_dataset = ElectroChemSet()
+    #     success = new_ec_dataset.insert_ec_data(filename)
+    #     if success:
+    #         self.ec_dataset = new_ec_dataset
+    #         self.cycles = self.ec_dataset.cycles
+    #         self._model_gui_queue.put(("number of cycles", len(self.ec_dataset.cycles)))
+    #         self.ec_items_from_cycle(0)
+    #         self.current_cycle = "Cycle 0"
+    #     else:
+    #         pass
 
     def read_ec_csv(self, filename):
         logging.info("reading file: {}".format(filename))
         success = self.read_ec_cycles_csv(filename)
         if success:
             self._model_gui_queue.put(("number of cycles", len(self.ec_cycles)))
-            self.ec_items_from_cycle(0)
             self.current_cycle = "Cycle 0"
+            self.ec_items_from_cycle()
         else:
             pass
 
@@ -307,12 +333,11 @@ class Model(threading.Thread):
             self.ec_cycles['Cycle 0'] = new_ec_cycle
         return True
 
-    def ec_items_from_cycle(self, cycle_number=0):
-        cycle = f'Cycle {cycle_number}'
+    def ec_items_from_cycle(self):
         if len(self.ec_cycles) > 0:
-            cycle_ec_uA = self.ec_cycles[cycle].uA
-            cycle_ec_V = self.ec_cycles[cycle].V
-            self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V, cycle)))
+            cycle_ec_uA = self.ec_cycles[self.current_cycle].uA
+            cycle_ec_V = self.ec_cycles[self.current_cycle].V
+            self._model_gui_queue.put(("draw ec", (cycle_ec_uA, cycle_ec_V, self.current_cycle)))
         else:
             logging.info("ec file not loaded")
 
