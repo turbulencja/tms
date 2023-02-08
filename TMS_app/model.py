@@ -63,15 +63,7 @@ class Model(threading.Thread):
                     self.current_cycle = "Cycle {}".format(data)
                     self.ec_items_from_cycle()
                 elif order == "load opto csv":
-                    if len(self.ec_cycles) < 1:
-                        logging.info("ec file not loaded")
-                        return
-                    try:
-                        success = self.read_opto_cycle_csv(data)
-                    except (UnicodeDecodeError, ValueError) as e:
-                        logging.error("optical file corrupted")
-                    if success:
-                        self._model_gui_queue.put(("opto file loaded", 0))
+                    self.load_opto_order(data)
                 elif order == "load ec csv":
                     self.read_ec_csv(data)
                 elif order == "save data":
@@ -82,6 +74,18 @@ class Model(threading.Thread):
                         logging.error("no data to save yet for the current cycle")
                 else:
                     logging.info("unrecognizable order: {}".format(order))
+
+    def load_opto_order(self, data):
+        if len(self.ec_cycles) < 1:
+            logging.info("ec file not loaded")
+            return
+        try:
+            success = self.read_opto_cycle_csv(data)
+        except (UnicodeDecodeError, ValueError) as e:
+            logging.error("optical file corrupted")
+        if success:
+            self.iodm_range = None
+            self._model_gui_queue.put(("opto file loaded", 0))
 
     def run_experiment(self, root):
         for dir, subdirs, files in os.walk(root):
@@ -99,8 +103,7 @@ class Model(threading.Thread):
         self._model_gui_queue.put(("all done", None))
 
     def run_auto_analysis(self, ec_file, opto_file):
-        # todo: zakodowac jedno iodm range
-        self.read_ec_cycles_csv(ec_file)
+        self.read_ec_csv(ec_file)
         self.read_opto_cycle_csv(opto_file)
         for cycle in self.ec_cycles:
             self.current_cycle = cycle
@@ -219,7 +222,8 @@ class Model(threading.Thread):
         :param filename: string path to file
         :return: bool success
         """
-        logging.info("reading file: {}".format(filename))
+        _, fname = os.path.split(filename)
+        logging.info("reading file: {}".format(fname))
         self.filename = self.convert_filename(filename)
         data = open(filename)
 
@@ -276,21 +280,10 @@ class Model(threading.Thread):
         else:
             logging.info("optical file not loaded")
 
-    # def read_ec_csv_old(self, filename):
-    #     logging.info("reading file: {}".format(filename))
-    #     new_ec_dataset = ElectroChemSet()
-    #     success = new_ec_dataset.insert_ec_data(filename)
-    #     if success:
-    #         self.ec_dataset = new_ec_dataset
-    #         self.cycles = self.ec_dataset.cycles
-    #         self._model_gui_queue.put(("number of cycles", len(self.ec_dataset.cycles)))
-    #         self.ec_items_from_cycle(0)
-    #         self.current_cycle = "Cycle 0"
-    #     else:
-    #         pass
-
     def read_ec_csv(self, filename):
-        logging.info("reading file: {}".format(filename))
+        pathname, fname = os.path.split(filename)
+        self._model_gui_queue.put(("set pathname", pathname))
+        logging.info("reading file: {}".format(fname))
         success = self.read_ec_cycles_csv(filename)
         if success:
             self._model_gui_queue.put(("number of cycles", len(self.ec_cycles)))
@@ -302,6 +295,7 @@ class Model(threading.Thread):
     def read_ec_cycles_csv(self, filename):
         data = open(filename)
         cycles_count = 0
+        corrupted_rows = 0
         V, uA = [], []
         key, first_meas_id = None, None
         for num, row in enumerate(data):
@@ -320,6 +314,11 @@ class Model(threading.Thread):
                         V, uA = [], []
                     key = row.split(', ')[0]
                     first_meas_id = row_number + 1
+                elif tmp_v == 'None' or tmp_ua == 'None':
+                    logging.warning("file might be corrupted")
+                    # corrupted_rows = corrupted_rows + 1
+                    V.append(np.nan)
+                    uA.append(np.nan)
                 else:
                     logging.warning("this doesn't seem like the right type of file")
                     return False

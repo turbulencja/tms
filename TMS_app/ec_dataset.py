@@ -68,9 +68,9 @@ class ElectroChemSet:
             logging.error("doesn't seem like it's the right file")
 
     def pick_significant_points(self):
-        max_V = np.max(self.V)
+        max_V = np.nanmax(self.V)
         ([max_V_idx]) = np.where(self.V == max_V)
-        min_V = np.min(self.V)
+        min_V = np.nanmin(self.V)
         ([min_V_idx]) = np.where(self.V == min_V)
         diff_idx = abs(max_V_idx[0]-min_V_idx[0])//2
         self.id_dict['Umax'] = max_V_idx

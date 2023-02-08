@@ -30,8 +30,10 @@ class LogQueue(object):
 def logger_setup():
     gui_log_queue = LogQueue()
 
-    formatter = logging.Formatter('%(asctime)s: %(threadName)s: %(message)s')
-    logging.basicConfig(stream=gui_log_queue, level=logging.INFO, format='%(asctime)s: %(threadName)s: %(message)s')
+    # formatter = logging.Formatter('%(asctime)s: %(threadName)s: %(message)s')
+    formatter = logging.Formatter('%(asctime)s: %(message)s')
+    # logging.basicConfig(stream=gui_log_queue, level=logging.INFO, format='%(asctime)s: %(threadName)s: %(message)s')
+    logging.basicConfig(stream=gui_log_queue, level=logging.INFO, format='%(asctime)s: %(message)s')
     logger = logging.getLogger()
 
     log_queue = queue.Queue()

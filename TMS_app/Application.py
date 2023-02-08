@@ -38,7 +38,7 @@ class View(tkinter.Frame):
         self.ec_data = None
         self.ec_range = None
 
-        self.initialdir = "C:/Users/aerial triceratops/PycharmProjects/TechMatStrateg/dane/"
+        self.initialdir = "C:/Users/aerial triceratops/PycharmProjects/TechMatStrateg2/dane/"
         self.setup_window()
         logging.info("GUI running thread {}".format(threading.get_ident()))
 
@@ -63,6 +63,8 @@ class View(tkinter.Frame):
                     cycle = self.cycle_number_increment(data[2])
                     self.duck_frame.electrochemical_teardown()
                     self.duck_frame.draw_electrochemical(cycle)
+                elif order == "set pathname":
+                    self.dirlabel_txt.set(data)
                 elif order == "all done":
                     self.param_frame.all_done()
                 elif order == "opto file loaded":
@@ -100,10 +102,14 @@ class View(tkinter.Frame):
         self.analysis_frame = AnalysisFrame(self, borderwidth=1)
         self.param_frame = ParamFrame(self, borderwidth=1)
 
-        self.duck_frame.grid(row=0, column=0)
-        self.opto_frame.grid(row=0, column=1)
-        self.param_frame.grid(row=1, column=0)
-        self.analysis_frame.grid(row=1, column=1)
+        self.duck_frame.grid(row=1, column=0)
+        self.opto_frame.grid(row=1, column=1)
+        self.param_frame.grid(row=2, column=0)
+        self.analysis_frame.grid(row=2, column=1)
+
+        self.dirlabel_txt = tkinter.StringVar()
+        self.dirlabel = ttk.Label(self, textvariable=self.dirlabel_txt)
+        self.dirlabel.grid(row=0, columnspan=2)
 
     def set_automatic_mode(self, on):
         if on:
@@ -285,7 +291,11 @@ class ParamFrame(tkinter.Frame):
         self.start_experiment_button.grid(row=2, column=2)
 
     def all_done(self):
+        self.running_experiment = False
         self.start_experiment_button.state(['!disabled'])
+        self.browse_exp_button.state(['!disabled'])
+        self.mode_radio.state(['!disabled'])
+        logging.info("all done!")
 
     def on_off_experiment(self):
         if not self.running_experiment and self.dirname:
@@ -300,6 +310,8 @@ class ParamFrame(tkinter.Frame):
         self.running_experiment = True
         self.parent.gui_model_q.put(("start experiment", self.dirname))
         self.start_experiment_button.state(['disabled'])
+        self.browse_exp_button.state(['disabled'])
+        self.mode_radio.state(['disabled'])
 
     def askopenfile_exp(self):
         self.dirname = filedialog.askdirectory(initialdir=self.parent.initialdir, title="Select directory")
@@ -307,8 +319,6 @@ class ParamFrame(tkinter.Frame):
             pass
         else:
             logging.info("experiment {}".format(self.dirname))
-            # self.parent.initialdir = os.path.dirname(filename)
-            # todo: send to View for display
 
     def display_log(self, record):
         self.logger_text.configure(state='normal')
@@ -338,19 +348,19 @@ class CycleButton(ttk.Button):
         self.cycle = cycle
         self.on = False
         #########################
-        self.style = ttk.Style()
-        self.style.configure(style="cycle_{}.TButton".format(self.cycle))
-        self.color_on = "#0000ff"
-        self.color_off = "#000000"
+        # self.style = ttk.Style()
+        # self.style.configure(style="cycle_{}.TButton".format(self.cycle))
+        # self.color_on = "#0000ff"
+        # self.color_off = "#000000"
         #########################
         button_text = "Cycle {}".format(self.cycle + 1)
         ttk.Button.__init__(self, parent, text=button_text,
                             style="cycle_{}.TButton".format(self.cycle),
                             command=self.button_command)
 
-    def change_button_color(self, color: str) -> None:
-        # configure the style with a background color
-        self.style.configure("cycle_{}.TButton".format(self.cycle), foreground=color)
+    # def change_button_color(self, color: str) -> None:
+    #     # configure the style with a background color
+    #     self.style.configure("cycle_{}.TButton".format(self.cycle), foreground=color)
 
     def button_command(self):
         if self.on:
@@ -359,12 +369,12 @@ class CycleButton(ttk.Button):
             self.button_on()
 
     def button_on(self):
-        self.change_button_color(self.color_on)
+        # self.change_button_color(self.color_on)
         self.parent.button_on(self.cycle)
         self.on = True
 
     def button_off(self):
-        self.change_button_color(self.color_off)
+        # self.change_button_color(self.color_off)
         self.parent.button_off(self.cycle)
         self.on = False
 
@@ -397,7 +407,10 @@ class CycleButtonsGroup(tkinter.Frame):
             self.parent.parent.gui_model_q.put(("ec cycle", cycle))
 
     def button_off(self, cycle):
-        self.buttons_on.remove(cycle)
+        try:
+            self.buttons_on.remove(cycle)
+        except ValueError:
+            pass
 
     def update_no_cycles(self, num_cycles):
         # disable all buttons
@@ -415,16 +428,11 @@ class CycleButtonsGroup(tkinter.Frame):
             self.cycle_buttons_dict[0].state(["!disabled"])
 
     def automatic_mode_on(self):
-        # multiple choice
-        # default: all cycles on
         self.automatic_mode = True
-        self.update_no_cycles(3)
-        for num in range(3):
-            self.cycle_buttons_dict[num].button_on()
+        for cycle_button in self.cycle_buttons_dict:
+            self.cycle_buttons_dict[cycle_button].state(["disabled"])
 
     def automatic_mode_off(self):
-        # single choice
-        # default: check number of cycles
         self.automatic_mode = False
         for num in range(3):
             self.cycle_buttons_dict[num].button_off()
@@ -445,19 +453,21 @@ class AnalysisFrame(tkinter.Frame):
         self.anls_redraw_button = ttk.Button(self, text="Redraw", command=self.model_send_params)
         self.anls_savedata_button = ttk.Button(self, text="Save data", command=self.save_data)
         self.param_option_string = tkinter.StringVar()
-        anls_option = ttk.Combobox(self, textvariable=self.param_option_string)
-        anls_option['values'] = ('fit λ(V)+IODM(V)', 'fit λ(V)', 'IODM(V)')
+        self.anls_option = ttk.Combobox(self, textvariable=self.param_option_string)
+        self.anls_option['values'] = ('fit λ(V)+IODM(V)', 'fit λ(V)', 'IODM(V)')
 
-        anls_option.grid(row=2, columnspan=2)
-        anls_option.current(0)
+        self.anls_option.grid(row=2, columnspan=2)
+        self.anls_option.current(0)
         self.anls_redraw_button.grid(row=3, column=0)
         self.anls_savedata_button.grid(row=3, column=1)
 
     def automatic_mode_on(self):
+        self.anls_option.state(["disabled"])
         self.anls_redraw_button.state(["disabled"])
         self.anls_savedata_button.state(["disabled"])
 
     def automatic_mode_off(self):
+        self.anls_option.state(["!disabled"])
         self.anls_redraw_button.state(["!disabled"])
         self.anls_savedata_button.state(["!disabled"])
 
