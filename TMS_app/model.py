@@ -26,7 +26,6 @@ class Model(threading.Thread):
         self.filename = None
         self.opto_cycles = None
         self.ec_cycles = {}
-        # self.cycles = None
         self.current_cycle = None
         self.data_saving = None
 
@@ -104,8 +103,12 @@ class Model(threading.Thread):
         self._model_gui_queue.put(("all done", None))
 
     def run_auto_analysis(self, ec_file, opto_file):
-        self.read_ec_csv(ec_file)
-        self.read_opto_cycle_csv(opto_file)
+        success_ec = self.read_ec_csv(ec_file)
+        if not success_ec:
+            return
+        success_opto = self.read_opto_cycle_csv(opto_file)
+        if not success_opto:
+            return
         for cycle in self.ec_cycles:
             self.current_cycle = cycle
             self.ec_items_from_cycle()
@@ -303,10 +306,12 @@ class Model(threading.Thread):
             self._model_gui_queue.put(("number of cycles", len(self.ec_cycles)))
             self.current_cycle = "Cycle 0"
             self.ec_items_from_cycle()
+            return True
         else:
-            pass
+            return False
 
     def read_ec_cycles_csv(self, filename):
+        self.ec_cycles = {}
         try:
             data = open(filename)
         except FileNotFoundError:
