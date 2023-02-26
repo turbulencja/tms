@@ -93,7 +93,7 @@ class Model(threading.Thread):
             ec_file = None
             opto_file = None
             for file in files:
-                if file.startswith("ech_hello_") and file.endswith(".csv"):
+                if file.startswith("ech_pr_") and file.endswith(".csv"):
                     ec_file = os.path.join(dir, file)
                 elif file.startswith("opto_") and file.endswith(".csv"):
                     opto_file = os.path.join(dir, file)
