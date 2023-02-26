@@ -83,6 +83,7 @@ class Model(threading.Thread):
             success = self.read_opto_cycle_csv(data)
         except (UnicodeDecodeError, ValueError) as e:
             logging.error("optical file corrupted")
+            return
         if success:
             self.iodm_range = None
             self._model_gui_queue.put(("opto file loaded", 0))
@@ -127,7 +128,11 @@ class Model(threading.Thread):
 
     def send_iodm_lbd(self):
         cycle = self.opto_cycles[self.current_cycle]
-        fit_lbd_dict = cycle.calc_auto_fit()
+        try:
+            fit_lbd_dict = cycle.calc_auto_fit()
+        except ValueError:
+            logging.error("empty cycle")
+            return
         if self.iodm_range is None:
             iodm_dict, iodm_wavelength_start, iodm_wavelength_stop = cycle.automatic_IODM(cycle.transmission.keys(),
                                                                                           self.iodm_window_size)
@@ -154,9 +159,13 @@ class Model(threading.Thread):
         boundary_opto, boundary_keys = [], []
         for boundary_point in cycle_ec.id_dict:
             boundary_meas_idx = cycle_ec.id_dict[boundary_point]
-            for idx in boundary_meas_idx:
-                boundary_opto.append(cycle_opto.transmission[cycle_ec_idx0+idx])
-                boundary_keys.append("{}={}[V],".format(boundary_point, cycle_ec.V[idx]))
+            try:
+                for idx in boundary_meas_idx:
+                    boundary_opto.append(cycle_opto.transmission[cycle_ec_idx0+idx])
+                    boundary_keys.append("{}={}[V],".format(boundary_point, cycle_ec.V[idx]))
+            except KeyError:
+                logging.error("unable to save file")
+                return
         boundary_opto_np = np.array(boundary_opto)
         data_vertical = boundary_opto_np.transpose()
         header = "".join(boundary_keys)
@@ -186,8 +195,11 @@ class Model(threading.Thread):
         precision = ["%.6f", "%.10e", "%.4f", "%.6f"]
         try:
             np.savetxt(filename, data_vertical, delimiter=',', header=header, fmt=precision)
-        except PermissionError:
-            logging.error("close all files before saving")
+        except (PermissionError, AttributeError) as e:
+            if e == PermissionError:
+                logging.error("close all files before saving")
+            else:
+                logging.error("unexpected error, unable to save file")
 
     def send_lbd_v(self):
         cycle = self.opto_cycles[self.current_cycle]
@@ -225,7 +237,10 @@ class Model(threading.Thread):
         _, fname = os.path.split(filename)
         logging.info("reading file: {}".format(fname))
         self.filename = self.convert_filename(filename)
-        data = open(filename)
+        try:
+            data = open(filename)
+        except FileNotFoundError:
+            return False
 
         self.opto_cycles = dict.fromkeys(self.ec_cycles.keys())
         tmp = dict.fromkeys(self.ec_cycles.keys())
@@ -257,19 +272,18 @@ class Model(threading.Thread):
                 self.opto_cycles[cycle] = new_cycle
             else:
                 logging.warning(f"missing {cycle}; generating empty cycle")
-                # todo: fix self.cycles usage!!!!
-                self.opto_cycles[cycle] = self.insert_empty_cycle(self.cycles[cycle])
+                self.opto_cycles[cycle] = self.insert_empty_cycle(self.ec_cycles[cycle].id)
 
         logging.info("optical file loaded")
         return True
 
     @staticmethod
-    def insert_empty_cycle(cycles):
+    def insert_empty_cycle(ids):
         new_cycle = OptoCycleDataset()
         new_cycle.wavelength = [600, 700, 800, 900]
-        input = [[0.1, -0.1, -0.1, 0.1]] * len(cycles)
+        input = [[0.1, -0.1, -0.1, 0.1]] * (ids[1] - ids[0])
         input = np.array(input)
-        new_cycle.insert_opto_from_csv(input, cycles)
+        new_cycle.insert_opto_from_csv(input, ids)
         return new_cycle
 
     def draw_opto_cycle(self):
@@ -293,14 +307,21 @@ class Model(threading.Thread):
             pass
 
     def read_ec_cycles_csv(self, filename):
-        data = open(filename)
+        try:
+            data = open(filename)
+        except FileNotFoundError:
+            return False
         cycles_count = 0
-        corrupted_rows = 0
+        # corrupted_rows = 0
         V, uA = [], []
         key, first_meas_id = None, None
         for num, row in enumerate(data):
             try:
                 tmp_v, tmp_ua = row.split(', ')
+            except ValueError:
+                logging.error("wrong file type")
+                return False
+            try:
                 V.append(float(tmp_v))
                 uA.append(float(tmp_ua))
             except ValueError:

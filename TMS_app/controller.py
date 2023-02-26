@@ -1,4 +1,3 @@
-import tms_exceptions as tms_exc
 import numpy as np
 import threading
 import logging

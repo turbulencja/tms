@@ -42,7 +42,7 @@ class OptoDatasetB:
         '''
         # window size from nm to number of samples
         window_size_smpl, _ = self.find_nearest(self.wavelength[0]+window_size)
-        cutoff_wvlgth, _ = self.find_nearest(900)
+        cutoff_wvlgth, _ = self.find_nearest(700)
         # calc ftrans in running window
         ftrans_matrix = self.running_ftrans(ec_ids, window_size_smpl, cutoff=cutoff_wvlgth)
         # pick wavelength of maximal iodm amplitude
@@ -148,7 +148,6 @@ class OptoDatasetB:
 
     def find_nearest(self, value):
         diff = [abs(element - value) for element in self.wavelength]
-        # START HERE
         val_idx = diff.index(min(diff))
         val_real = self.wavelength[val_idx]
         return val_idx, val_real

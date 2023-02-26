@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# from GUI import View
 from Application import View
 from model import Model
 from queue import Queue
