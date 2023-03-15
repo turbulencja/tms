@@ -10,7 +10,7 @@ from tkinter import filedialog, scrolledtext, ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from queue import Empty
-from ec_dataset import ElectroChemCycle
+from TMS_app.tools.ec_dataset import ElectroChemCycle
 
 matplotlib.use('TkAgg')
 

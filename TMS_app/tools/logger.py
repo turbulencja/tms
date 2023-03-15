@@ -41,14 +41,14 @@ def logger_setup():
     queue_handler.setLevel(logging.DEBUG)
     logger.addHandler(queue_handler)
 
-    try:
-        makedirs('../TMS logs')
-    except FileExistsError:
-        pass
+    # try:
+    #     makedirs('../../TMS logs')
+    # except FileExistsError:
+    #     pass
 
     now = datetime.now()
     dt_string = now.strftime("%Y.%m.%d")
-    file_handler = logging.FileHandler("TMS logs/"+dt_string+"_TMS log.log")
+    file_handler = logging.FileHandler("../"+dt_string+"_TMS log.log")
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
 

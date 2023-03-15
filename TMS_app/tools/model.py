@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 import threading
 import logging
-from ec_dataset import ElectroChemSet, ElectroChemCycle
+from TMS_app.tools.ec_dataset import ElectroChemSet, ElectroChemCycle
 from queue import Empty
-from opto_dataset import OptoCycleDataset
+from TMS_app.tools.opto_dataset import OptoCycleDataset
 import numpy as np
 import os
 

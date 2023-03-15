@@ -1,8 +1,7 @@
 import numpy as np
 from datetime import datetime
-from TMS_app.ec_dataset import ElectroChemSet
-from TMS_app.opto_dataset import OptoCycleDataset
-import os
+from TMS_app.tools.ec_dataset import ElectroChemSet
+from TMS_app.tools.opto_dataset import OptoCycleDataset
 
 
 def read_opto_cycle_csv(filename):
@@ -63,7 +62,7 @@ def read_ec_csv(filename):
 
 
 def read_wavelengths():
-    wavelength = np.genfromtxt(r"C:\Users\aerial triceratops\PycharmProjects\TechMatStrateg2\TMS_app\wavelength.txt", delimiter=',')[2:]
+    wavelength = np.genfromtxt(r"/TMS_app/tools/wavelength.txt", delimiter=',')[2:]
     return wavelength
 
 

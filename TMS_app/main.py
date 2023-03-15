@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
-from Application import View
-from model import Model
+from TMS_app.tools.Application import View
+from TMS_app.tools.model import Model
 from queue import Queue
-from logger import logger_setup
+from TMS_app.tools.logger import logger_setup
 import tkinter as tk
 
 

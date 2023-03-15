@@ -1,8 +1,7 @@
 import numpy as np
 import os
 import numpy.lib.recfunctions as rf
-from TMS_app.opto_dataset import OptoDatasetB
-from TMS_app.ec_dataset import ElectroChemSet
+from TMS_app.tools.opto_dataset import OptoDatasetB
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt

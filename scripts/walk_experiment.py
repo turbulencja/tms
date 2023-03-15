@@ -1,12 +1,12 @@
 import os
-from TMS_app.opto_dataset import OptoDatasetB
-from TMS_app.ec_dataset import ElectroChemSet
+from TMS_app.tools.opto_dataset import OptoDatasetB
+from TMS_app.tools.ec_dataset import ElectroChemSet
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 root_cv = r'C:\Users\aerial triceratops\PycharmProjects\TechMatStrateg\dane\[archive]\Kasia_2021.04.25\dane\-1.5-0.2,st0.2, 100mV 2c\opto_ech__2021_04_20_15_34_47'
-wvlgth_path = r'../TMS_app/wavelength.txt'
+wvlgth_path = r'../TMS_app/tools/wavelength.txt'
 sns.set_theme()
 
 def find_nearest_lambda(lambda_nm, wavelength_array):
